@@ -1,0 +1,221 @@
+# ui/settings.py
+import streamlit as st
+from core import data_access, holidays, amap_client
+
+
+
+def render():
+    st.subheader("Settings")
+    
+    # ===== 📥 DATA IMPORT SECTION (NEW) =====
+    st.markdown("### 📥 Data Import")
+    st.info("Re-import shop master data from CSV file (MxStockTakeMasterList.csv). This will overwrite all existing shop records.")
+    
+    col1, col2 = st.columns([1, 3])
+    
+    with col1:
+        if st.button("🔄 Re-import Shops from CSV", type="primary", use_container_width=True):
+            try:
+                with st.spinner("Importing shops from CSV..."):
+                    data_access.import_shops_from_csv(overwrite=True)
+                st.success("✅ Successfully re-imported all shops from CSV!")
+                st.balloons()
+                
+                # Show summary
+                total_shops = data_access.count_active_shops()
+                st.info(f"📊 Total active shops: {total_shops}")
+                
+            except FileNotFoundError:
+                st.error("❌ CSV file not found: data/MxStockTakeMasterList.csv")
+            except Exception as e:
+                st.error(f"❌ Import failed: {e}")
+    
+    with col2:
+        st.caption("⚠️ This will replace ALL shop data with the current CSV file. Make sure your CSV is up to date!")
+    
+    st.markdown("---")
+    # ===== END DATA IMPORT SECTION =====
+    
+    # --- Capacity settings --- (your existing code continues here)
+    st.markdown("### Scheduling capacity")
+    # ... rest of your existing code
+
+    
+    cap_str = data_access.get_setting("shops_per_day", "9")
+    try:
+        current_cap = int(cap_str)
+    except (TypeError, ValueError):
+        current_cap = 20
+
+    new_cap = st.number_input(
+        "Maximum shops per day (used for Generate Schedule and re-schedule capacity)",
+        min_value=1,
+        max_value=60,
+        value=current_cap,
+        step=1,
+    )
+
+    if st.button("Save capacity"):
+        data_access.set_setting("shops_per_day", str(new_cap))
+        st.success(f"Saved: max {new_cap} shops per day.")
+
+    st.caption(
+        "This value is used when generating new schedules and when re-scheduling "
+        "shops (capacity-aware)."
+    )
+
+    st.markdown("---")
+
+    # --- Group settings ---
+    st.markdown("### Daily group configuration")
+    
+    raw_groups = data_access.get_setting("groups_per_day", None)
+    raw_per_group = data_access.get_setting("shops_per_group", None)
+
+    try:
+        groups_per_day = int(raw_groups) if raw_groups is not None else 3
+    except (TypeError, ValueError):
+        groups_per_day = 3
+
+    try:
+        shops_per_group = int(raw_per_group) if raw_per_group is not None else 3
+    except (TypeError, ValueError):
+        shops_per_group = 3
+
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        groups_per_day_new = st.number_input(
+            "Groups per day",
+            min_value=1,
+            max_value=10,
+            value=groups_per_day,
+            step=1,
+            help="Number of parallel groups (e.g. 3 teams).",
+        )
+
+    with col2:
+        shops_per_group_new = st.number_input(
+            "Shops per group",
+            min_value=1,
+            max_value=10,
+            value=shops_per_group,
+            step=1,
+            help="Target shops per group (e.g. 3 shops per team).",
+        )
+
+    if st.button("Save group settings"):
+        data_access.set_setting("groups_per_day", str(groups_per_day_new))
+        data_access.set_setting("shops_per_group", str(shops_per_group_new))
+        
+        # Keep shops_per_day consistent
+        total_per_day = groups_per_day_new * shops_per_group_new
+        data_access.set_setting("shops_per_day", str(total_per_day))
+        
+        st.success(
+            f"Saved: {groups_per_day_new} groups/day × "
+            f"{shops_per_group_new} shops/group = {total_per_day} shops/day."
+        )
+
+    st.caption(
+        "Schedules will be split into groups (Group 1, Group 2, ...) per day. "
+        "Remaining shops (if not divisible) will fill Group 1, then Group 2, etc."
+    )
+
+    st.markdown("---")
+
+    # --- Amap API configuration ---
+    st.markdown("### AMap API configuration")
+    
+    # ✅ FIXED: Use consistent key name "AMAP_WEB_KEY"
+    api_key = data_access.get_setting("AMAP_WEB_KEY", "")
+    
+    new_key = st.text_input(
+        "AMap Web Service API Key",
+        value=api_key or "",
+        type="password",
+        help="Used for distance and routing calculations. Get your key from https://lbs.amap.com/",
+    )
+
+    col1, col2 = st.columns([1, 1])
+    
+    with col1:
+        if st.button("Save AMap API key"):
+            # ✅ FIXED: Use consistent key name
+            data_access.set_setting("AMAP_WEB_KEY", new_key.strip())
+            st.success("AMap API key saved.")
+            st.rerun()  # Refresh to test the new key
+    
+    with col2:
+        if st.button("Test API key"):
+            if not new_key.strip():
+                st.error("Please enter an API key first.")
+            else:
+                # ✅ NEW: Test API key functionality
+                with st.spinner("Testing API connection..."):
+                    try:
+                        # Save temporarily to test
+                        data_access.set_setting("AMAP_WEB_KEY", new_key.strip())
+                        is_valid = amap_client.test_api_key()
+                        
+                        if is_valid:
+                            st.success("✓ API key is valid and working!")
+                        else:
+                            st.error("✗ API key test failed. Please check your key.")
+                    except Exception as e:
+                        st.error(f"✗ Error testing API: {str(e)}")
+
+    # ✅ Show current API status
+    if api_key:
+        st.caption("✓ API key is configured")
+    else:
+        st.warning("⚠️ No API key configured. Distance calculations will not work.")
+
+    st.markdown("---")
+
+    # ✅ NEW: Holiday management section
+    st.markdown("### Holiday management")
+    
+    with st.expander("View/Edit holidays"):
+        holiday_df = holidays.get_holiday_df()
+        
+        if not holiday_df.empty:
+            st.dataframe(holiday_df, use_container_width=True)
+            st.caption(f"Total holidays: {len(holiday_df)}")
+        else:
+            st.info("No holidays configured.")
+        
+        st.markdown("##### Add new holiday")
+        col1, col2, col3 = st.columns([2, 2, 1])
+        
+        with col1:
+            new_holiday_date = st.date_input("Date", key="new_holiday_date")
+        
+        with col2:
+            new_holiday_name = st.text_input("Holiday name (Chinese)", key="new_holiday_name")
+        
+        with col3:
+            new_holiday_type = st.selectbox(
+                "Type",
+                ["Statutory", "General"],
+                key="new_holiday_type",
+            )
+        
+        if st.button("Add holiday"):
+            if new_holiday_name.strip():
+                holidays.add_holiday(
+                    date=new_holiday_date.isoformat(),
+                    name_zh=new_holiday_name.strip(),
+                    holiday_type=new_holiday_type,
+                )
+                st.success(f"Added holiday: {new_holiday_name}")
+                st.rerun()
+            else:
+                st.error("Please enter a holiday name.")
+        
+        # ✅ Initialize default holidays if empty
+        if holiday_df.empty:
+            if st.button("Load default Hong Kong holidays (2025-2026)"):
+                holidays.init_default_holidays()
+                st.success("Default holidays loaded!")
+                st.rerun()

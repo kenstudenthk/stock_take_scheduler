@@ -1,0 +1,47 @@
+# --- Python / virtualenv ---
+__pycache__/
+*.py[cod]
+*$py.class
+ 
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+ 
+# Build / dist
+build/
+dist/
+*.egg-info/
+.eggs/
+*.egg
+ 
+# --- Streamlit ---
+.streamlit/
+ 
+# --- Data & database ---
+# SQLite DB (usually local only)
+data/*.sqlite
+data/*.db
+db.sqlite
+ 
+# If your real CSV is private, ignore it too
+# (You can keep a small sample CSV for demo)
+data/MxStockTakeMasterList.csv
+ 
+# --- OS / editor files ---
+.DS_Store
+Thumbs.db
+ 
+# VS Code / IDE
+.vscode/
+.idea/
+ 
+# Logs
+*.log
+ 
+# Environment / secrets
+.env
+.env.*
+secrets.toml
+config.ini
