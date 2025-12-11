@@ -32,39 +32,43 @@ TAB_TITLES = [
 def initialize_app():
     """Initialize database and default data on first run."""
     
-    # Check if initialization is needed (using a flag in settings)
-    init_flag = data_access.get_setting("app_initialized", None)
-    
-    if init_flag is None:
+    # 1. Always ensure DB structure exists first
+    # This creates tables if they are missing (safe to run every time)
+    data_access.init_db()
+
+    # 2. Check if we have initialized data before
+    try:
+        init_flag = data_access.get_setting("app_initialized", None)
+    except Exception:
+        init_flag = None
+
+    # 3. If NOT initialized, run the first-time setup
+    if not init_flag:
         with st.spinner("Initializing application for first time..."):
-            # 1. Initialize database structure
-            data_access.init_db()
             
-            # 2. Import shops from CSV
+            # A. Import shops from CSV
             try:
                 data_access.import_shops_from_csv(overwrite=True)
-                st.success("✓ Imported shop data successfully")
+                st.toast("✓ Imported shop data successfully")
             except FileNotFoundError:
-                st.warning("⚠️ Shop CSV file not found. Please add shops manually in Settings.")
+                st.warning("⚠️ Shop CSV file not found (data/MxStockTakeMasterList.csv). Please upload it or re-import in Settings.")
             except Exception as e:
                 st.error(f"Error importing shops: {str(e)}")
             
-            # 3. Initialize default holidays
+            # B. Initialize default holidays
             try:
+                from core import holidays  # Import here to avoid circular dependency
                 holidays.init_default_holidays()
-                st.success("✓ Initialized default Hong Kong holidays")
+                st.toast("✓ Initialized default Hong Kong holidays")
             except Exception as e:
                 st.warning(f"Could not initialize holidays: {str(e)}")
             
-            # 4. Set initialization flag
+            # C. Set initialization flag so we don't run this again
             data_access.set_setting("app_initialized", "true")
             data_access.set_setting("app_version", "1.0.0")
             
-            st.success("✅ Application initialized successfully!")
-            st.info("👉 Please go to Settings to configure your AMap API key.")
-    else:
-        # Already initialized, just ensure database structure is up-to-date
-        data_access.init_db()
+            st.success("✅ App initialized! Go to Settings to configure your API Key.")
+
 
 
 def main():
