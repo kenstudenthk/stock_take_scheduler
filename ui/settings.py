@@ -186,13 +186,13 @@ def render():
     st.markdown("---")
 
     # --- SharePoint / Power Automate Sync (SharePoint List) ---
-    st.markdown("### ☁️ SharePoint / Power Automate Sync")
+      st.markdown("### ☁️ SharePoint / Power Automate Sync")
 
     pa_url = st.text_input(
         "Power Automate HTTP URL",
         value=data_access.get_setting("PA_LIST_URL", ""),
         type="password",
-        help="https://make.powerautomate.com/environments/Default-c5924da6-deb3-421b-aa98-57bcba0ba050/flows/1b047948-205b-40db-80bb-851c205faed7?v3=true",
+        help="貼上 Power Automate Flow（Get items 的 HTTP 觸發器）產生的 URL。",
         key="pa_list_url",
     )
 
@@ -200,12 +200,10 @@ def render():
 
     with col_pa1:
         if st.button("💾 Save Power Automate URL"):
-            # 安全處理：避免 pa_url 為 None
-            url_to_save = (pa_url or "").strip()
-            data_access.set_setting("PA_LIST_URL", url_to_save)
+            data_access.set_setting("PA_LIST_URL", (pa_url or "").strip())
             st.success("Power Automate URL 已儲存。")
 
-            with col_pa2:
+    with col_pa2:
         if st.button("📥 Sync shops from SharePoint List"):
             url = data_access.get_setting("PA_LIST_URL")
             if not url:
@@ -214,17 +212,13 @@ def render():
                 import requests
                 try:
                     with st.spinner("從 SharePoint 下載資料中..."):
-                        # 加入 Header 確保接收 JSON
                         resp = requests.get(url, headers={"Accept": "application/json"})
                         resp.raise_for_status()
-                        
-                        content_type = resp.headers.get('Content-Type', '')
-                        
-                        # 情況 A：回傳 JSON (List items)
-                        if 'json' in content_type:
+
+                        content_type = resp.headers.get("Content-Type", "")
+
+                        if "json" in content_type:
                             data = resp.json()
-                            
-                            # 判斷根結構是 List 還是 Dict
                             if isinstance(data, list):
                                 items = data
                             elif isinstance(data, dict):
@@ -233,25 +227,19 @@ def render():
                                 raise ValueError("未知的 JSON 格式")
 
                             with st.spinner(f"更新資料庫 ({len(items)} 筆 JSON)..."):
-                                from core import data_access as da
-                                da.import_shops_from_json(items, overwrite=True)
-
-                        # 情況 B：回傳 CSV (File content)
+                                data_access.import_shops_from_json(items, overwrite=True)
                         else:
                             csv_path = "data/MxStockTakeMasterList.csv"
                             with open(csv_path, "wb") as f:
                                 f.write(resp.content)
-                            
+
                             st.success("✓ CSV 檔案已下載。正在匯入資料庫...")
-                            
                             with st.spinner("更新資料庫 (CSV)..."):
-                                from core import data_access as da
-                                da.import_shops_from_csv(overwrite=True)
+                                data_access.import_shops_from_csv(overwrite=True)
 
                     st.success("✅ 已完成與 SharePoint 同步店舖資料。")
                     st.balloons()
                 except Exception as e:
                     st.error(f"同步失敗：{e}")
-
 
 
