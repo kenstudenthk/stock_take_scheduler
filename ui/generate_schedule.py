@@ -154,7 +154,7 @@ def render():
                         st.success("✅ Schedule has been synced back to SharePoint Lists.")
                     else:
                         st.warning("⚠️ Schedule generated, but failed to sync to SharePoint.")
-                        st.text(f"DEBUG SharePoint error: {e!r}")
+                        
 
             except Exception as e:
                 st.error(f"Error generating schedule: {str(e)}")

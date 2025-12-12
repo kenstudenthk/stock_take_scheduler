@@ -723,25 +723,21 @@ def _get_sharepoint_item_id(shop_id: str, list_url: str, token: str) -> int | No
 def sync_schedule_back_to_sharepoint(start_date: str | None = None) -> bool:
     """
     將排程結果寫回 SharePoint（簡化版介面）
-    
-    Args:
-        start_date: 起始日期（格式：YYYY-MM-DD），None 表示同步所有
-        
-    Returns:
-        成功回傳 True，失敗回傳 False
     """
     try:
+        print(f"[DEBUG] sync_schedule_back_to_sharepoint called, start_date={start_date!r}")
         if start_date:
-            # 解析年月
             year = int(start_date[:4])
             month = int(start_date[5:7])
+            print(f"[DEBUG] -> calling export_schedule_to_sharepoint({year}, {month})")
             return export_schedule_to_sharepoint(year, month)
         else:
+            print("[DEBUG] -> calling export_schedule_to_sharepoint() for ALL")
             return export_schedule_to_sharepoint()
-            
     except Exception as e:
         print(f"❌ 同步失敗: {e}")
         return False
+
 
 
 
