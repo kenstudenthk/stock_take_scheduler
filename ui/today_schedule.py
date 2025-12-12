@@ -115,8 +115,10 @@ def render():
 
 
     # ✅ Show summary for this day
-    total_shops = len(rows)
-    groups = set(row["group_no"] for row in rows)
+    total_shops = len(data)  # 改用 data
+    
+    # 使用 data 來計算 groups (注意：要處理 group_no 可能是 None 的情況)
+    groups = set(d.get("group_no") for d in data if d.get("group_no") is not None)
     num_groups = len(groups)
     
     col_sum1, col_sum2, col_sum3 = st.columns(3)
@@ -126,7 +128,12 @@ def render():
         st.metric("Number of groups", num_groups)
     with col_sum3:
         if data and data[0].get("day_total_distance_km"):
-            st.metric("Total distance (km)", f"{data[0]['day_total_distance_km']:.1f}")
+             # 小心：如果值是字串，這裡可能要 float() 轉型，或者直接印出
+             val = data[0]['day_total_distance_km']
+             try:
+                 st.metric("Total distance (km)", f"{float(val):.1f}")
+             except:
+                 st.metric("Total distance (km)", str(val))
         else:
             st.metric("Total distance", "Not calculated")
 
