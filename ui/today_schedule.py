@@ -86,11 +86,12 @@ def render():
             SELECT *
             FROM schedule s
             JOIN shop_master sm ON s.shop_id = sm.shop_id
-            WHERE s.scheduled_date = ?
+            WHERE s.date = ?  -- ✅ 修正：scheduled_date -> date
             ORDER BY sm.region_code, sm.shop_code
             """,
             (selected_date.isoformat(),)
         )
+
         
         # fetchall 也要在 with 區塊內
         rows = cur.fetchall()
