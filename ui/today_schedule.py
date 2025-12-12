@@ -139,12 +139,16 @@ def render():
 
     # ✅ Group by group_no and display
     for group_num in sorted(groups):
-        group_rows = [r for r in rows if r["group_no"] == group_num]
+        # 1. 先從 data (已經轉成 dict list) 裡篩選出屬於該群組的資料
+        group_data = [d for d in data if d.get("group_no") == group_num]
         
-        with st.expander(f"🗂️ Group {group_num} ({len(group_rows)} shops)", expanded=(group_num == 1)):
-                for idx, r in enumerate(data):
-                    group_num = r.get("group_no", 1)  # 使用 .get 安全獲取
-                    _render_row(idx, r, group_num)
+        with st.expander(f"🗂️ Group {group_num} ({len(group_data)} shops)", expanded=(group_num == 1)):
+            # 2. 只遍歷該群組的資料
+            for idx, r in enumerate(group_data):
+                # 3. 呼叫渲染函式
+                # 這裡的 idx 是該群組內的索引，key = group_num + unique_id + idx，絕對唯一
+                _render_row(idx, r, group_num)
+
 
   # ui/today_schedule.py
 # 在現有程式碼最後加入以下內容
