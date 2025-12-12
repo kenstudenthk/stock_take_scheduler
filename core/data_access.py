@@ -594,5 +594,77 @@ def import_shops_from_json(json_data: list, overwrite: bool = True):
 
     print(f"✓ Successfully imported {len(df_final)} shops from SharePoint List (JSON)")
 
+def export_schedule_to_sharepoint(year: int = None, month: int = None):
+    """將排程資料寫回 SharePoint List"""
+    try:
+        import requests
+        import json
+        
+        # 從 settings 取得 SharePoint 設定
+        sharepoint_url = data_access.get_setting("SHAREPOINT_LIST_URL")
+        access_token = data_access.get_setting("SHAREPOINT_ACCESS_TOKEN")
+        
+        if not sharepoint_url or not access_token:
+            print("⚠️ SharePoint 設定未配置，跳過寫回")
+            return False
+        
+        # 查詢指定年月的排程
+        if year and month:
+            prefix = f"{year:04d}-{month:02d}-"
+            schedules = data_access.search_schedule(date_prefix=prefix)
+        else:
+            schedules = data_access.get_all_schedules()
+        
+        if not schedules:
+            print("ℹ️ 沒有排程資料需要寫回")
+            return True
+        
+        print(f"📤 準備寫回 {len(schedules)} 筆排程到 SharePoint...")
+        
+        # 逐筆更新 SharePoint List
+        headers = {
+            "Authorization": f"Bearer {access_token}",
+            "Content-Type": "application/json;odata=verbose",
+            "Accept": "application/json;odata=verbose"
+        }
+        
+        success_count = 0
+        for sched in schedules:
+            shop_id = sched["shop_id"]
+            sched_date = sched["date"]
+            status = sched.get("status", "Planned")
+            
+            # 建構 SharePoint 更新 payload
+            payload = {
+                "__metadata": {"type": "SP.Data.YourListNameListItem"},  # 需要替換成實際 List 名稱
+                "ScheduledDate": sched_date,
+                "Status": status,
+                "ShopCode": shop_id
+            }
+            
+            # 更新 SharePoint item (需要 shop_id 對應的 item ID)
+            item_id = _get_sharepoint_item_id(shop_id)  # 需要實作
+            if item_id:
+                url = f"{sharepoint_url}({item_id})"
+                response = requests.post(
+                    url,
+                    headers=headers,
+                    json=payload,
+                    params={"$metadata": "verbose"}
+                )
+                
+                if response.status_code in [200, 201]:
+                    success_count += 1
+                else:
+                    print(f"❌ 寫回失敗 {shop_id}: {response.status_code} - {response.text}")
+            else:
+                print(f"⚠️ 找不到 SharePoint item ID for shop {shop_id}")
+        
+        print(f"✅ 成功寫回 {success_count}/{len(schedules)} 筆排程")
+        return success_count > 0
+        
+    except Exception as e:
+        print(f"❌ SharePoint 寫回失敗: {e}")
+        return False
 
 
