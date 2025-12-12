@@ -125,8 +125,8 @@ def render():
     with col_sum2:
         st.metric("Number of groups", num_groups)
     with col_sum3:
-        if rows[0].get("day_total_distance_km"):
-            st.metric("Total distance (km)", f"{rows[0]['day_total_distance_km']:.1f}")
+        if data and data[0].get("day_total_distance_km"):
+            st.metric("Total distance (km)", f"{data[0]['day_total_distance_km']:.1f}")
         else:
             st.metric("Total distance", "Not calculated")
 
