@@ -1,6 +1,7 @@
 # ui/today_schedule.py
 import datetime
 import streamlit as st
+import sqlite3
 from core import data_access, holidays
 
 
@@ -71,27 +72,33 @@ def render():
     st.markdown("---")
     st.markdown(f"### Schedule for {selected_date.isoformat()}")
 
-    # Handle actions first
+     # Handle actions first
     _handle_actions(selected_date)
 
     # ✅ Load schedule with proper ordering by group and route order
     with data_access.get_db_connection() as conn:
+        conn.row_factory = sqlite3.Row  # 確保可以轉成 dict
         cur = conn.cursor()
-    cur.execute(
-        """
-        SELECT *
-        FROM schedule s
-        JOIN shop_master sm ON s.shop_id = sm.shop_id
-        WHERE s.scheduled_date = ?
-        ORDER BY sm.region_code, sm.shop_code
-        """,
-        (selected_date.isoformat(),)
-    )
-    
-    # 2. 轉成 DataFrame 方便處理
-    rows = cur.fetchall()
+        
+        # 注意：cur.execute 必須在 with 區塊的縮排內執行
+        cur.execute(
+            """
+            SELECT *
+            FROM schedule s
+            JOIN shop_master sm ON s.shop_id = sm.shop_id
+            WHERE s.scheduled_date = ?
+            ORDER BY sm.region_code, sm.shop_code
+            """,
+            (selected_date.isoformat(),)
+        )
+        
+        # fetchall 也要在 with 區塊內
+        rows = cur.fetchall()
+
+    # --- 以下跳出 with 區塊，conn 已經自動關閉，但 rows 資料已經拿到了 ---
+
     if not rows:
-        st.info("今天沒有排程。")
+        st.info("今天沒有排程。 (No schedule for today)")
         return
 
     # 轉成 dict list
@@ -99,11 +106,13 @@ def render():
     
     # 3. 在 Python 層面處理欄位名稱 (容錯)
     for d in data:
-        # 如果資料庫是 lat，就用 lat；如果是 Latitude，就用 Latitude
         d['lat'] = d.get('lat') or d.get('Latitude') or d.get('field_20')
         d['lng'] = d.get('lng') or d.get('Longitude') or d.get('field_21')
         d['region'] = d.get('region_code') or d.get('Region')
         d['contact'] = d.get('contact_name') or d.get('ContactName')
+
+    # ... 接下來繼續你的程式碼 ...
+
 
     # ✅ Show summary for this day
     total_shops = len(rows)
