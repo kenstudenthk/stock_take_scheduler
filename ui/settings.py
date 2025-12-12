@@ -205,7 +205,7 @@ def render():
             data_access.set_setting("PA_LIST_URL", url_to_save)
             st.success("Power Automate URL 已儲存。")
 
-        with col_pa2:
+            with col_pa2:
         if st.button("📥 Sync shops from SharePoint List"):
             url = data_access.get_setting("PA_LIST_URL")
             if not url:
@@ -252,5 +252,6 @@ def render():
                     st.balloons()
                 except Exception as e:
                     st.error(f"同步失敗：{e}")
+
 
 
