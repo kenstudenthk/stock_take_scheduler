@@ -86,8 +86,7 @@ def render():
             SELECT *
             FROM schedule s
             JOIN shop_master sm ON s.shop_id = sm.shop_id
-            WHERE s.date = ?  -- ✅ 修正：scheduled_date -> date
-            ORDER BY sm.region_code, sm.shop_code
+            WHERE s.date = ? 
             """,
             (selected_date.isoformat(),)
         )
