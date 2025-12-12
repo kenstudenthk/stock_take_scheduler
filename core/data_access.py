@@ -488,7 +488,7 @@ def get_setting(key: str, default: str | None = None) -> str | None:
 # ---------------------------------------------------------
 
 def import_shops_from_json(json_data: list, overwrite: bool = True):
-    """Import shops from SharePoint List JSON data (Ultra Safe Version)."""
+    """Import shops from SharePoint List JSON data (Handles Dict/Choice fields)."""
     import pandas as pd
     
     if not json_data:
@@ -497,66 +497,67 @@ def import_shops_from_json(json_data: list, overwrite: bool = True):
 
     # 1. 轉成原始 DataFrame
     df_raw = pd.DataFrame(json_data)
-    print(f"[DEBUG] Raw Columns: {df_raw.columns.tolist()}")
-
-    # 2. 定義我們要抓取的欄位邏輯 (優先順序)
-    # Key: 資料庫欄位名稱
-    # Value: 嘗試從 JSON 裡抓取的欄位名稱列表 (優先抓前面的)
+    
+    # 2. 定義我們要抓取的欄位邏輯
     fetch_rules = {
         "shop_id":      ["field_6", "ShopCode", "Title"],
         "shop_name":    ["field_7", "ShopName"],
         "address_zh":   ["field_8", "AddressChi"],
         "address_en":   ["field_14", "AddressEng"],
-        "region_code":  ["field_9", "Region"],
-        "area_en":      ["field_10", "Area"],
-        "district_en":  ["field_16", "District"],
-        "brand":        ["field_11", "Brand"],
+        "region_code":  ["field_9", "Region"],       # Choice 欄位
+        "area_en":      ["field_10", "Area"],         # Choice 欄位
+        "district_en":  ["field_16", "District"],     # Choice 欄位
+        "brand":        ["field_11", "Brand"],        # Choice 欄位
         "business_unit":["BusinessUnit", "business_unit"],
         "brand_icon_url": ["field_23", "Brandicon"],
         "lat":          ["field_20", "Latitude"],
         "lng":          ["field_21", "Longitude"],
-        "is_active":    ["field_35", "Available"],
-        "is_mtr":       ["field_17", "MTR"],
+        "is_active":    ["field_35", "Available"],    # Choice 欄位
+        "is_mtr":       ["field_17", "MTR"],          # Choice 欄位
         "phone":        ["field_37", "TelephoneNumber"],
         "contact_name": ["field_38", "Contactname"]
     }
 
+    # 3. 逐行處理 (包含字典解包)
     clean_rows = []
-            
-            # 將原始 DataFrame 轉成 records (list of dicts) 方便處理
     raw_records = df_raw.to_dict(orient='records')
 
     for raw_row in raw_records:
         clean_row = {}
-                
-                # 對每個目標欄位，嘗試從 raw_row 裡找值
+        
         for db_col, candidates in fetch_rules.items():
             value = None
             for candidate in candidates:
                 if candidate in raw_row and pd.notna(raw_row[candidate]):
                     raw_val = raw_row[candidate]
-                            
-                    # --- 🛠️ 修正：處理 SharePoint 的字典/List 欄位 ---
+                    
+                    # --- 🛠️ 關鍵修正：處理 Choice/Lookup 字典 ---
                     if isinstance(raw_val, dict):
-                                # 如果是字典，嘗試取 'Value' (SharePoint 常見格式)
-                        value = raw_val.get('Value') or raw_val.get('Title') or str(raw_val)
+                        # 嘗試取 'Value' (SharePoint Choice 標準格式)
+                        # 有些 lookup 可能是 'Title' 或 'Id'，這裡優先取 Value
+                        value = raw_val.get('Value') 
+                        if value is None:
+                             value = raw_val.get('Title') # 有時候是 Title
+                        if value is None:
+                             # 如果真的取不到，轉成字串避免報錯
+                             value = str(raw_val)
+                    # ----------------------------------------
                     elif isinstance(raw_val, list):
-                                # 如果是 List，轉成字串
-                                value = str(raw_val)
+                        # 複選 Choice 會是 List，轉字串 (e.g. "['Option A', 'Option B']")
+                        value = ", ".join([str(v.get('Value', v)) if isinstance(v, dict) else str(v) for v in raw_val])
                     else:
-                                value = raw_val
-                            # -----------------------------------------------
-                            
-                    break # 找到一個有值的就停
+                        value = raw_val
                     
-                    clean_row[db_col] = value
-                    
-                clean_rows.append(clean_row)
+                    break # 找到值就停
+            
+            clean_row[db_col] = value
+            
+        clean_rows.append(clean_row)
 
-    # 4. 轉成最終的 DataFrame
+    # 4. 轉成 DataFrame
     df_final = pd.DataFrame(clean_rows)
     
-    # 5. 資料清洗 (跟之前一樣)
+    # 5. 資料清洗
     if "shop_id" in df_final.columns:
         df_final = df_final[df_final["shop_id"].notna()]
         df_final["shop_id"] = df_final["shop_id"].astype(str)
@@ -566,16 +567,16 @@ def import_shops_from_json(json_data: list, overwrite: bool = True):
     for col in ["lat", "lng"]:
         df_final[col] = pd.to_numeric(df_final[col], errors='coerce')
 
-    # 布林轉換
+    # 布林轉換 (現在 is_active 如果是 'Y' 字串就能正確處理了)
     for col in ["is_mtr", "is_active"]:
         df_final[col] = df_final[col].apply(
             lambda x: 1 if str(x).upper() in ['Y', 'YES', 'TRUE', '1'] else 0
         )
 
-    # 去重 (以防萬一 shop_id 有重複)
+    # 去重
     df_final = df_final.drop_duplicates(subset=['shop_id'])
 
-    # 6. 寫入資料庫
+    # 6. 寫入 DB
     with get_db_connection() as conn:
         if overwrite:
             df_final.to_sql("shop_master", conn, if_exists="replace", index=False)
@@ -592,5 +593,6 @@ def import_shops_from_json(json_data: list, overwrite: bool = True):
                     print(f"Error inserting row {row.get('shop_id')}: {e}")
 
     print(f"✓ Successfully imported {len(df_final)} shops from SharePoint List (JSON)")
+
 
 
