@@ -144,12 +144,23 @@ def render():
                         )
 
                 _render_stats(result)
-                
+
+                # 🔄 ✅ 新增：產生成功後，寫回 SharePoint
+                with st.spinner("Syncing schedule back to SharePoint Lists..."):
+                    ok = data_access.sync_schedule_back_to_sharepoint(
+                        start_date=start_date.isoformat()
+                    )
+                    if ok:
+                        st.success("✅ Schedule has been synced back to SharePoint Lists.")
+                    else:
+                        st.warning("⚠️ Schedule generated, but failed to sync to SharePoint.")
+
             except Exception as e:
                 st.error(f"Error generating schedule: {str(e)}")
                 import traceback
                 with st.expander("Show error details"):
                     st.code(traceback.format_exc())
+
 
 
 def _render_stats(result: scheduler_engine.ScheduleResult):

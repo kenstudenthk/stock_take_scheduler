@@ -594,26 +594,34 @@ def import_shops_from_json(json_data: list, overwrite: bool = True):
 
     print(f"✓ Successfully imported {len(df_final)} shops from SharePoint List (JSON)")
 
+# =============================================================================
+# SharePoint 同步功能
+# =============================================================================
+
 def export_schedule_to_sharepoint(year: int = None, month: int = None):
     """將排程資料寫回 SharePoint List"""
     try:
-        import requests
+        import requests  # ✅ 確保有安裝 requests
         import json
         
-        # 從 settings 取得 SharePoint 設定
-        sharepoint_url = data_access.get_setting("SHAREPOINT_LIST_URL")
-        access_token = data_access.get_setting("SHAREPOINT_ACCESS_TOKEN")
+        # ✅ 修正：直接呼叫 get_setting()，不用 data_access 前綴
+        sharepoint_url = get_setting("SHAREPOINT_LIST_URL")
+        access_token = get_setting("SHAREPOINT_ACCESS_TOKEN")
         
         if not sharepoint_url or not access_token:
             print("⚠️ SharePoint 設定未配置，跳過寫回")
             return False
         
-        # 查詢指定年月的排程
+        # ✅ 修正：使用現有的 search_schedule() 函式
         if year and month:
-            prefix = f"{year:04d}-{month:02d}-"
-            schedules = data_access.search_schedule(date_prefix=prefix)
+            date_str = f"{year:04d}-{month:02d}-01"  # 該月第一天
+            schedules = search_schedule(date=date_str)  # 只能搜尋特定日期
         else:
-            schedules = data_access.get_all_schedules()
+            # ✅ 修正：改用 SQL 查詢取得所有排程
+            with get_db_connection() as conn:
+                cur = conn.cursor()
+                cur.execute("SELECT * FROM schedule ORDER BY date, shop_id;")
+                schedules = [dict(r) for r in cur.fetchall()]
         
         if not schedules:
             print("ℹ️ 沒有排程資料需要寫回")
@@ -636,24 +644,24 @@ def export_schedule_to_sharepoint(year: int = None, month: int = None):
             
             # 建構 SharePoint 更新 payload
             payload = {
-                "__metadata": {"type": "SP.Data.YourListNameListItem"},  # 需要替換成實際 List 名稱
-                "ScheduledDate": sched_date,
-                "Status": status,
-                "ShopCode": shop_id
+                "__metadata": {"type": "SP.Data.MxStockTakeMasterListListItem"},  # ✅ 改成您的 List 名稱
+                "field_39": sched_date,  # ✅ 對應您的 ScheduledDate 欄位
+                "field_40": status,       # ✅ 對應您的 Status 欄位
+                "field_6": shop_id        # ✅ 對應您的 ShopCode 欄位
             }
             
-            # 更新 SharePoint item (需要 shop_id 對應的 item ID)
-            item_id = _get_sharepoint_item_id(shop_id)  # 需要實作
+            # ✅ 更新 SharePoint item（需要取得 item ID）
+            item_id = _get_sharepoint_item_id(shop_id, sharepoint_url, access_token)
+            
             if item_id:
-                url = f"{sharepoint_url}({item_id})"
-                response = requests.post(
+                url = f"{sharepoint_url}/items({item_id})"
+                response = requests.patch(  # ✅ 使用 PATCH 而非 POST
                     url,
                     headers=headers,
-                    json=payload,
-                    params={"$metadata": "verbose"}
+                    json=payload
                 )
                 
-                if response.status_code in [200, 201]:
+                if response.status_code in [200, 201, 204]:
                     success_count += 1
                 else:
                     print(f"❌ 寫回失敗 {shop_id}: {response.status_code} - {response.text}")
@@ -663,8 +671,77 @@ def export_schedule_to_sharepoint(year: int = None, month: int = None):
         print(f"✅ 成功寫回 {success_count}/{len(schedules)} 筆排程")
         return success_count > 0
         
+    except ImportError:
+        print("❌ 請先安裝 requests 模組：pip install requests")
+        return False
     except Exception as e:
         print(f"❌ SharePoint 寫回失敗: {e}")
+        import traceback
+        traceback.print_exc()
         return False
+
+
+def _get_sharepoint_item_id(shop_id: str, list_url: str, token: str) -> int | None:
+    """
+    根據 shop_id 查詢對應的 SharePoint List Item ID
+    
+    Args:
+        shop_id: 店舖代碼（例如 "S001"）
+        list_url: SharePoint List API URL
+        token: Access Token
+        
+    Returns:
+        SharePoint Item ID 或 None（找不到時）
+    """
+    try:
+        import requests
+        
+        # ✅ 使用 OData 查詢語法搜尋
+        query_url = f"{list_url}/items?$filter=field_6 eq '{shop_id}'&$select=id"
+        
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "Accept": "application/json;odata=verbose"
+        }
+        
+        response = requests.get(query_url, headers=headers)
+        
+        if response.status_code == 200:
+            data = response.json()
+            items = data.get("d", {}).get("results", [])
+            
+            if items and len(items) > 0:
+                return items[0].get("Id") or items[0].get("id")
+        
+        return None
+        
+    except Exception as e:
+        print(f"❌ 查詢 SharePoint Item ID 失敗: {e}")
+        return None
+
+
+def sync_schedule_back_to_sharepoint(start_date: str | None = None) -> bool:
+    """
+    將排程結果寫回 SharePoint（簡化版介面）
+    
+    Args:
+        start_date: 起始日期（格式：YYYY-MM-DD），None 表示同步所有
+        
+    Returns:
+        成功回傳 True，失敗回傳 False
+    """
+    try:
+        if start_date:
+            # 解析年月
+            year = int(start_date[:4])
+            month = int(start_date[5:7])
+            return export_schedule_to_sharepoint(year, month)
+        else:
+            return export_schedule_to_sharepoint()
+            
+    except Exception as e:
+        print(f"❌ 同步失敗: {e}")
+        return False
+
 
 
