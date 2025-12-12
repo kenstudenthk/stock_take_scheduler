@@ -14,21 +14,32 @@ def render():
     col1, col2 = st.columns([1, 3])
     
     with col1:
-        if st.button("🔄 Re-import Shops from CSV", type="primary", use_container_width=True):
-            try:
-                with st.spinner("Importing shops from CSV..."):
-                    data_access.import_shops_from_csv(overwrite=True)
-                st.success("✅ Successfully re-imported all shops from CSV!")
-                st.balloons()
+        if st.button("📥 Sync from SharePoint List"):
+    url = data_access.get_setting("PA_LIST_URL")
+    if not url:
+        st.error("Please save the Power Automate URL first.")
+    else:
+        import requests
+        try:
+            with st.spinner("Fetching data from SharePoint List..."):
+                response = requests.get(url)
+                response.raise_for_status()
+                json_data = response.json() # Parse JSON response
                 
-                # Show summary
-                total_shops = data_access.count_active_shops()
-                st.info(f"📊 Total active shops: {total_shops}")
+                # Check structure (SharePoint 'Get items' returns data inside 'value' key usually)
+                items = json_data.get('value', json_data) 
                 
-            except FileNotFoundError:
-                st.error("❌ CSV file not found: data/MxStockTakeMasterList.csv")
-            except Exception as e:
-                st.error(f"❌ Import failed: {e}")
+            st.success(f"✓ Fetched {len(items)} items!")
+            
+            with st.spinner("Updating database..."):
+                data_access.import_shops_from_json(items, overwrite=True)
+            
+            st.success("✅ Database sync complete!")
+            st.balloons()
+            
+        except Exception as e:
+            st.error(f"Sync failed: {str(e)}")
+
     
     with col2:
         st.caption("⚠️ This will replace ALL shop data with the current CSV file. Make sure your CSV is up to date!")
