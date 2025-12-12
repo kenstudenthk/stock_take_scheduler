@@ -598,88 +598,78 @@ def import_shops_from_json(json_data: list, overwrite: bool = True):
 # SharePoint 同步功能
 # =============================================================================
 
-def export_schedule_to_sharepoint(year: int = None, month: int = None):
-    print("[DEBUG] export_schedule_to_sharepoint called with", year, month)
-    """將排程資料寫回 SharePoint List"""
-    try:
-        import requests  # ✅ 確保有安裝 requests
-        import json
-        
-        # ✅ 修正：直接呼叫 get_setting()，不用 data_access 前綴
-        sharepoint_url = get_setting("SHAREPOINT_LIST_URL")
-        access_token = get_setting("SHAREPOINT_ACCESS_TOKEN")
-        
-        if not sharepoint_url or not access_token:
-            print("⚠️ SharePoint 設定未配置，跳過寫回")
-            return False
-        
-        # ✅ 修正：使用現有的 search_schedule() 函式
-        if year and month:
-            date_str = f"{year:04d}-{month:02d}-01"  # 該月第一天
-            schedules = search_schedule(date=date_str)  # 只能搜尋特定日期
-        else:
-            # ✅ 修正：改用 SQL 查詢取得所有排程
-            with get_db_connection() as conn:
-                cur = conn.cursor()
-                cur.execute("SELECT * FROM schedule ORDER BY date, shop_id;")
-                schedules = [dict(r) for r in cur.fetchall()]
-        
-        if not schedules:
-            print("ℹ️ 沒有排程資料需要寫回")
-            return True
-        
-        print(f"📤 準備寫回 {len(schedules)} 筆排程到 SharePoint...")
-        
-        # 逐筆更新 SharePoint List
-        headers = {
-            "Authorization": f"Bearer {access_token}",
-            "Content-Type": "application/json;odata=verbose",
-            "Accept": "application/json;odata=verbose"
-        }
-        
-        success_count = 0
-        for sched in schedules:
-            shop_id = sched["shop_id"]
-            sched_date = sched["date"]
-            status = sched.get("status", "Planned")
-            
-            # 建構 SharePoint 更新 payload
-            payload = {
-                "__metadata": {"type": "SP.Data.MxStockTakeMasterListListItem"},  # ✅ 改成您的 List 名稱
-                "field_39": sched_date,  # ✅ 對應您的 ScheduledDate 欄位
-                "field_40": status,       # ✅ 對應您的 Status 欄位
-                "field_6": shop_id        # ✅ 對應您的 ShopCode 欄位
-            }
-            
-            # ✅ 更新 SharePoint item（需要取得 item ID）
-            item_id = _get_sharepoint_item_id(shop_id, sharepoint_url, access_token)
-            
-            if item_id:
-                url = f"{sharepoint_url}/items({item_id})"
-                response = requests.patch(  # ✅ 使用 PATCH 而非 POST
-                    url,
-                    headers=headers,
-                    json=payload
-                )
-                
-                if response.status_code in [200, 201, 204]:
-                    success_count += 1
-                else:
-                    print(f"❌ 寫回失敗 {shop_id}: {response.status_code} - {response.text}")
-            else:
-                print(f"⚠️ 找不到 SharePoint item ID for shop {shop_id}")
-        
-        print(f"✅ 成功寫回 {success_count}/{len(schedules)} 筆排程")
-        return success_count > 0
-        
-    except ImportError:
-        print("❌ 請先安裝 requests 模組：pip install requests")
+def export_schedule_to_sharepoint(year: int = None, month: int = None) -> bool:
+    """
+    將排程資料透過 Power Automate Flow 寫回 SharePoint List
+    （不再直接呼叫 SharePoint REST + Token）
+    """
+    import requests
+    import json
+
+    # 從 settings 讀 Flow URL
+    flow_url = get_setting("PA_SCHEDULE_WRITE_URL")
+    if not flow_url:
+        print("⚠️ PA_SCHEDULE_WRITE_URL 未設定，跳過寫回")
         return False
+
+    # 取得要寫回的 schedule 資料
+    with get_db_connection() as conn:
+        cur = conn.cursor()
+        if year and month:
+            # 該月第一天，簡單版本：只抓同一個月的資料可再擴充
+            month_prefix = f"{year:04d}-{month:02d}-"
+            cur.execute(
+                """
+                SELECT shop_id, date, COALESCE(status, 'Planned') AS status
+                FROM schedule
+                WHERE date LIKE ? || '%'
+                ORDER BY date, shop_id;
+                """,
+                (month_prefix,),
+            )
+        else:
+            cur.execute(
+                """
+                SELECT shop_id, date, COALESCE(status, 'Planned') AS status
+                FROM schedule
+                ORDER BY date, shop_id;
+                """
+            )
+        rows = cur.fetchall()
+
+    if not rows:
+        print("ℹ️ 沒有排程資料需要寫回")
+        return True
+
+    items = [
+        {
+            "shop_id": r[0],
+            "date": r[1],
+            "status": r[2],
+        }
+        for r in rows
+    ]
+
+    payload = {"items": items}
+
+    try:
+        print(f"📤 準備透過 Power Automate 寫回 {len(items)} 筆排程...")
+        resp = requests.post(
+            flow_url,
+            headers={"Content-Type": "application/json"},
+            data=json.dumps(payload),
+            timeout=30,
+        )
+        resp.raise_for_status()
+        print("✅ Flow 回應:", resp.status_code, resp.text)
+        # 可選：檢查 resp.json().get("ok", True)
+        return True
     except Exception as e:
-        print(f"❌ SharePoint 寫回失敗: {e}")
+        print(f"❌ 呼叫 Power Automate Flow 失敗: {e}")
         import traceback
         traceback.print_exc()
         return False
+
 
 
 def _get_sharepoint_item_id(shop_id: str, list_url: str, token: str) -> int | None:

@@ -265,5 +265,21 @@ def render():
         data_access.set_setting("SHAREPOINT_LIST_URL", sp_url_new.strip())
         data_access.set_setting("SHAREPOINT_ACCESS_TOKEN", sp_token_new.strip())
         st.success("SharePoint settings saved.")
+    
+    st.markdown("---")
+st.markdown("### Power Automate (write schedule)")
+
+pa_write_url = st.text_input(
+    "Power Automate URL for writing schedule",
+    value=data_access.get_setting("PA_SCHEDULE_WRITE_URL", ""),
+    type="password",
+    help="貼上用來接收 schedule 的 HTTP Flow URL。",
+    key="pa_schedule_write_url",
+)
+
+if st.button("💾 Save schedule write URL"):
+    data_access.set_setting("PA_SCHEDULE_WRITE_URL", (pa_write_url or "").strip())
+    st.success("Schedule write URL 已儲存。")
+
 
 
