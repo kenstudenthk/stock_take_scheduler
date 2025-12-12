@@ -186,7 +186,7 @@ def render():
     st.markdown("---")
 
     # --- SharePoint / Power Automate Sync (SharePoint List) ---
-      st.markdown("### ☁️ SharePoint / Power Automate Sync")
+    st.markdown("### ☁️ SharePoint / Power Automate Sync")
 
     pa_url = st.text_input(
         "Power Automate HTTP URL",
