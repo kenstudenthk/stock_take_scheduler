@@ -71,17 +71,24 @@ def initialize_app():
 
 
 
+
 def main():
-    """Main application entry point."""
-    # st.set_page_config(...)
-    
-    # --- 暫時除錯用 ---
+    st.set_page_config(page_title="Stock Take Scheduler", layout="wide")
+
+    # --- 🔍 暫時除錯用：印出資料庫欄位 ---
     import sqlite3
-    conn = sqlite3.connect('data/stock_take.db') # 或是你的 db 路徑
-    st.write("Shop Master Columns:", [row[1] for row in conn.execute("PRAGMA table_info(shop_master)")])
-    conn.close()
-    # ----------------
-    
+    try:
+        # 假設資料庫路徑是 data/stock_take.db，若不同請修改
+        conn = sqlite3.connect('data/stock_take.db') 
+        cursor = conn.cursor()
+        cursor.execute("PRAGMA table_info(shop_master);")
+        columns = [info[1] for info in cursor.fetchall()]
+        st.error(f"⚠️ 目前 shop_master 的欄位有：{columns}")
+        conn.close()
+    except Exception as e:
+        st.error(f"無法讀取資料庫欄位: {e}")
+    # ------------------------------------
+
     initialize_app()
     
     # Header
