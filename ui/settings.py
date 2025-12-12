@@ -241,4 +241,29 @@ def render():
                     st.balloons()
                 except Exception as e:
                     st.error(f"同步失敗：{e}")
+                    
+    st.markdown("---")
+    st.markdown("### SharePoint settings")
+
+    sp_url = data_access.get_setting("SHAREPOINT_LIST_URL", "") or ""
+    sp_token = data_access.get_setting("SHAREPOINT_ACCESS_TOKEN", "") or ""
+
+    sp_url_new = st.text_input(
+        "SharePoint List API URL",
+        value=sp_url,
+        help="例如: https://xxx.sharepoint.com/sites/YourSite/_api/web/lists/getbytitle('MxStockTakeMasterList')"
+    )
+
+    sp_token_new = st.text_input(
+        "SharePoint access token (Bearer)",
+        value=sp_token,
+        type="password",
+        help="暫時可貼從 Postman / Graph Explorer 拿到的 Bearer token 來測試"
+    )
+
+    if st.button("Save SharePoint settings"):
+        data_access.set_setting("SHAREPOINT_LIST_URL", sp_url_new.strip())
+        data_access.set_setting("SHAREPOINT_ACCESS_TOKEN", sp_token_new.strip())
+        st.success("SharePoint settings saved.")
+
 

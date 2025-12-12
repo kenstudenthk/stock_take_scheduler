@@ -599,6 +599,7 @@ def import_shops_from_json(json_data: list, overwrite: bool = True):
 # =============================================================================
 
 def export_schedule_to_sharepoint(year: int = None, month: int = None):
+    print("[DEBUG] export_schedule_to_sharepoint called with", year, month)
     """將排程資料寫回 SharePoint List"""
     try:
         import requests  # ✅ 確保有安裝 requests
