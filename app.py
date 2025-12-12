@@ -137,9 +137,6 @@ def main():
     st.title("📦 Stock Take Scheduler")
     st.caption("Hong Kong Store Stock Take Planning Tool")
     
-    # 3. 建立 Tabs 導航
-    if "TAB_TITLES" not in globals():
-        TAB_TITLES = ["📅 Today", "🗓️ Generate", "🗺️ Shops", "🔍 View", "⚙️ Settings"]
         
     tab1, tab2, tab3, tab4, tab5 = st.tabs(TAB_TITLES)
 
