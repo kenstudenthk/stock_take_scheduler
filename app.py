@@ -77,20 +77,19 @@ import os
 def main():
     st.set_page_config(...)
 
-    # --- 🚨 強制重置資料庫 (執行一次後請註解掉) ---
-    if st.sidebar.button("⚠️ 刪除並重置資料庫"):
+    # --- 🛠️ 修復工具 (用完可刪除) ---
+    if st.sidebar.button("🚨 重置資料庫 (Fix Schema)"):
+        import os
         try:
-            db_path = "data/stock_take.db" # 確認這是你的 DB 路徑
-            if os.path.exists(db_path):
-                os.remove(db_path)
-                st.success("舊資料庫已刪除！請重新整理頁面。")
-            else:
-                st.warning("找不到資料庫檔案。")
+            # 1. 刪除壞掉的 db
+            if os.path.exists("data/stock_take.db"):
+                os.remove("data/stock_take.db")
+            if os.path.exists("data/db.sqlite"): # data_access.py 裡定義的路徑可能是這個
+                os.remove("data/db.sqlite")
             
-            # 呼叫 init_db 重新建表
-            from core import data_access
+            # 2. 重新初始化
             data_access.init_db()
-            st.success("資料庫已重新初始化 (包含完整欄位)。")
+            st.success("資料庫已重置！請重新整理頁面。")
         except Exception as e:
             st.error(f"重置失敗: {e}")
     # ---------------------------------------------
