@@ -181,7 +181,7 @@ def render():
         
         with col_ctrl4:
             # Get all groups
-            all_groups = sorted(set(r.get("group_no", 1) for r in rows))
+            all_groups = sorted(set(d.get("group_no", 1) for d in data))
             selected_groups = st.multiselect(
                 "Filter groups",
                 all_groups,
@@ -193,7 +193,7 @@ def render():
        
         # Create and display map
         deck = map_visualizer.create_route_map(
-            rows,
+            data,
             selected_date.isoformat(),
             show_route_lines=show_lines,
             show_labels=show_labels,
