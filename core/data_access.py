@@ -471,3 +471,69 @@ def get_setting(key: str, default: str | None = None) -> str | None:
         cur.execute("SELECT value FROM settings WHERE key = ?;", (key,))
         row = cur.fetchone()
         return row[0] if row else default
+
+def import_shops_from_json(json_data: list, overwrite: bool = True):
+    """Import shops from SharePoint List JSON data."""
+    import pandas as pd
+    
+    if not json_data:
+        print("⚠️ No data received from SharePoint List")
+        return
+
+    # Map SharePoint List columns to our DB columns
+    df = pd.DataFrame(json_data)
+    
+    # 欄位對應表 (請依據你的 SharePoint List 實際欄位名稱修改左邊的 Key)
+    column_mapping = {
+        "Title": "shop_id",            # 假設 Shop Code 是 Title 欄位
+        "ShopName": "shop_name",
+        "AddressChi": "address_zh",
+        "AddressEng": "address_en",
+        "Region": "region_code",
+        "Area": "area_en",
+        "District": "district_en",
+        "MTR_x0028_Y_x002f_N_x0029_": "is_mtr", # 範例：MTR (Y/N) 的內部名稱
+        "Brand": "brand",
+        "BusinessUnit": "business_unit",
+        "Brandicon": "brand_icon_url",
+        "Latitude": "lat",
+        "Longitude": "lng",
+        "Available": "is_active",
+        "TelephoneNumber": "phone",
+        "Contactname": "contact_name"
+    }
+    
+    # 重新命名欄位
+    rename_dict = {}
+    for sp_col, db_col in column_mapping.items():
+        if sp_col in df.columns:
+            rename_dict[sp_col] = db_col
+            
+    df_new = df.rename(columns=rename_dict)
+    
+    # 簡單資料清理
+    if "shop_id" in df_new.columns:
+        df_new = df_new[df_new["shop_id"].notna()]
+        df_new["shop_id"] = df_new["shop_id"].astype(str)
+        
+    # 處理 Boolean 欄位
+    if "is_mtr" in df_new.columns:
+        df_new["is_mtr"] = df_new["is_mtr"].apply(lambda x: 1 if x == True or x == "Y" else 0)
+        
+    if "is_active" in df_new.columns:
+        df_new["is_active"] = df_new["is_active"].apply(lambda x: 1 if x == True or x == "Y" else 0)
+
+    # 補齊資料庫需要的欄位 (若 SharePoint 沒給)
+    required_cols = ["shop_id", "shop_name", "address_zh", "region_code", "district_en", "lat", "lng", "brand"]
+    for col in required_cols:
+        if col not in df_new.columns:
+            df_new[col] = None
+
+    # 寫入資料庫
+    with get_db_connection() as conn:
+        if overwrite:
+            df_new.to_sql("shop_master", conn, if_exists="replace", index=False)
+        else:
+            df_new.to_sql("shop_master", conn, if_exists="append", index=False)
+            
+    print(f"✓ Successfully imported {len(df_new)} shops from SharePoint List")
