@@ -521,25 +521,37 @@ def import_shops_from_json(json_data: list, overwrite: bool = True):
         "contact_name": ["field_38", "Contactname"]
     }
 
-    # 3. 建立一個乾淨的字典列表，逐行處理
     clean_rows = []
-    
-    # 將原始 DataFrame 轉成 records (list of dicts) 方便處理
+            
+            # 將原始 DataFrame 轉成 records (list of dicts) 方便處理
     raw_records = df_raw.to_dict(orient='records')
 
     for raw_row in raw_records:
-        clean_row = {}
-        
-        # 對每個目標欄位，嘗試從 raw_row 裡找值
-        for db_col, candidates in fetch_rules.items():
-            value = None
-            for candidate in candidates:
-                if candidate in raw_row and pd.notna(raw_row[candidate]):
-                    value = raw_row[candidate]
-                    break # 找到一個有值的就停
-            clean_row[db_col] = value
-            
-        clean_rows.append(clean_row)
+                clean_row = {}
+                
+                # 對每個目標欄位，嘗試從 raw_row 裡找值
+                for db_col, candidates in fetch_rules.items():
+                    value = None
+                    for candidate in candidates:
+                        if candidate in raw_row and pd.notna(raw_row[candidate]):
+                            raw_val = raw_row[candidate]
+                            
+                            # --- 🛠️ 修正：處理 SharePoint 的字典/List 欄位 ---
+                            if isinstance(raw_val, dict):
+                                # 如果是字典，嘗試取 'Value' (SharePoint 常見格式)
+                                value = raw_val.get('Value') or raw_val.get('Title') or str(raw_val)
+                            elif isinstance(raw_val, list):
+                                # 如果是 List，轉成字串
+                                value = str(raw_val)
+                            else:
+                                value = raw_val
+                            # -----------------------------------------------
+                            
+                            break # 找到一個有值的就停
+                    
+                    clean_row[db_col] = value
+                    
+                clean_rows.append(clean_row)
 
     # 4. 轉成最終的 DataFrame
     df_final = pd.DataFrame(clean_rows)
