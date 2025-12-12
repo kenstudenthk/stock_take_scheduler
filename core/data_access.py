@@ -471,3 +471,71 @@ def get_setting(key: str, default: str | None = None) -> str | None:
         cur.execute("SELECT value FROM settings WHERE key = ?;", (key,))
         row = cur.fetchone()
         return row[0] if row else default
+        
+def import_shops_from_json(json_data: list, overwrite: bool = True):
+    """Import shops from SharePoint List JSON data."""
+    import pandas as pd
+    
+    # Map SharePoint List columns to our DB columns
+    # Adjust 'SP_Col_Name' to match your actual SharePoint List column internal names
+    df = pd.DataFrame(json_data)
+    
+    # Example Mapping (Verify your actual list column names!)
+    # SharePoint usually returns 'Title' for the first column
+    column_mapping = {
+        "Title": "shop_id",            # Assuming Shop Code is the Title
+        "ShopName": "shop_name",
+        "AddressChi": "address_zh",
+        "AddressEng": "address_en",
+        "Region": "region_code",
+        "Area": "area_en",
+        "District": "district_en",
+        "MTR_x0028_Y_x002f_N_x0029_": "is_mtr", # Special characters like (Y/N) get encoded
+        "Brand": "brand",
+        "BusinessUnit": "business_unit",
+        "Brandicon": "brand_icon_url",
+        "Latitude": "lat",
+        "Longitude": "lng",
+        "Available": "is_active",
+        "TelephoneNumber": "phone",
+        "Contactname": "contact_name"
+    }
+    
+    # Rename columns available in the JSON
+    # We use a loop to be safe against missing columns
+    rename_dict = {}
+    for sp_col, db_col in column_mapping.items():
+        if sp_col in df.columns:
+            rename_dict[sp_col] = db_col
+            
+    df_new = df.rename(columns=rename_dict)
+    
+    # Data Cleaning
+    if "shop_id" in df_new.columns:
+        df_new = df_new[df_new["shop_id"].notna()]
+        df_new["shop_id"] = df_new["shop_id"].astype(str)
+        
+    # Convert Yes/No or Y/N to integers if needed
+    if "is_mtr" in df_new.columns:
+        # SharePoint boolean is usually True/False or "Y"/"N" string
+        df_new["is_mtr"] = df_new["is_mtr"].apply(lambda x: 1 if x == True or x == "Y" else 0)
+        
+    if "is_active" in df_new.columns:
+        df_new["is_active"] = df_new["is_active"].apply(lambda x: 1 if x == True or x == "Y" else 0)
+
+    # ... (rest of the logic is same as CSV import: creating df_final and saving to SQL) ...
+    # Ensure all required DB columns exist, fill with None/0 if missing
+    required_cols = ["shop_id", "shop_name", "address_zh", "region_code", "district_en", "lat", "lng", "brand"]
+    for col in required_cols:
+        if col not in df_new.columns:
+            df_new[col] = None
+
+    # Save to DB
+    with get_db_connection() as conn:
+        if overwrite:
+            df_new.to_sql("shop_master", conn, if_exists="replace", index=False)
+        else:
+            df_new.to_sql("shop_master", conn, if_exists="append", index=False)
+            
+    print(f"✓ Successfully imported {len(df_new)} shops from SharePoint List")
+
