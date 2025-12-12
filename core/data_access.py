@@ -175,10 +175,21 @@ def import_shops_from_csv(overwrite: bool = True):
 # ---------- 查詢工具 ----------
 
 def count_active_shops() -> int:
-    """計算仍在營業（is_active=1）的店舖數量"""
+    """計算店舖數量，自動適應 is_active 或 Available 欄位"""
     with get_db_connection() as conn:
         cur = conn.cursor()
-        cur.execute("SELECT COUNT(*) FROM shop_master WHERE is_active = 1;")
+        try:
+            # 1. 先試標準欄位 is_active
+            cur.execute("SELECT COUNT(*) FROM shop_master WHERE is_active = 1;")
+        except Exception:
+            # 2. 如果報錯 (no such column)，試試看 Available
+            try:
+                # 注意：Available 在 CSV 裡可能是 'Y'/'N' 文字
+                cur.execute("SELECT COUNT(*) FROM shop_master WHERE Available = 'Y';")
+            except Exception:
+                # 3. 真的都沒有，就傳回所有店舖數 (當作全部都 active)
+                cur.execute("SELECT COUNT(*) FROM shop_master;")
+        
         return cur.fetchone()[0]
 
 
@@ -515,6 +526,7 @@ def import_shops_from_json(json_data: list, overwrite: bool = True):
         "field_37": "phone", "TelephoneNumber": "phone", "phone": "phone",
         "field_38": "contact_name", "Contactname": "contact_name", "contact_name": "contact_name",
         # Status
+        "Available": "is_active", 
         "field_35": "is_active", "Available": "is_active", "is_active": "is_active",
         # MTR
         "field_17": "is_mtr", "MTR": "is_mtr", "is_mtr": "is_mtr",
