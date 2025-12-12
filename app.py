@@ -72,7 +72,31 @@ def initialize_app():
 
 
 
+import os
+
 def main():
+    st.set_page_config(...)
+
+    # --- 🚨 強制重置資料庫 (執行一次後請註解掉) ---
+    if st.sidebar.button("⚠️ 刪除並重置資料庫"):
+        try:
+            db_path = "data/stock_take.db" # 確認這是你的 DB 路徑
+            if os.path.exists(db_path):
+                os.remove(db_path)
+                st.success("舊資料庫已刪除！請重新整理頁面。")
+            else:
+                st.warning("找不到資料庫檔案。")
+            
+            # 呼叫 init_db 重新建表
+            from core import data_access
+            data_access.init_db()
+            st.success("資料庫已重新初始化 (包含完整欄位)。")
+        except Exception as e:
+            st.error(f"重置失敗: {e}")
+    # ---------------------------------------------
+
+    initialize_app()
+    
     st.set_page_config(page_title="Stock Take Scheduler", layout="wide")
 
     # --- 🔍 暫時除錯用：印出資料庫欄位 ---

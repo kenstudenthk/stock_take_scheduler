@@ -77,22 +77,33 @@ def render():
     # ✅ Load schedule with proper ordering by group and route order
     with data_access.get_db_connection() as conn:
         cur = conn.cursor()
-        cur.execute(
-            """
-            SELECT s.*, sm.shop_name, sm.address_zh, sm.region, sm.district_en,
-            sm.telephone_number, sm.contact_name, sm.brand, sm.latitude, sm.longitude
-            FROM schedule s
-            JOIN shop_master sm ON s.shop_id = sm.shop_id
-            WHERE s.scheduled_date = ?
-            ORDER BY s.group_no ASC, s.day_route_order ASC;
-            """,
-            (selected_date.isoformat(),),
-        )
-        rows = [dict(row) for row in cur.fetchall()]
-
+    cur.execute(
+        """
+        SELECT *
+        FROM schedule s
+        JOIN shop_master sm ON s.shop_id = sm.shop_id
+        WHERE s.scheduled_date = ?
+        ORDER BY sm.region_code, sm.shop_code
+        """,
+        (selected_date.isoformat(),)
+    )
+    
+    # 2. 轉成 DataFrame 方便處理
+    rows = cur.fetchall()
     if not rows:
-        st.info("📭 No shops scheduled for this date.")
+        st.info("今天沒有排程。")
         return
+
+    # 轉成 dict list
+    data = [dict(row) for row in rows]
+    
+    # 3. 在 Python 層面處理欄位名稱 (容錯)
+    for d in data:
+        # 如果資料庫是 lat，就用 lat；如果是 Latitude，就用 Latitude
+        d['lat'] = d.get('lat') or d.get('Latitude') or d.get('field_20')
+        d['lng'] = d.get('lng') or d.get('Longitude') or d.get('field_21')
+        d['region'] = d.get('region_code') or d.get('Region')
+        d['contact'] = d.get('contact_name') or d.get('ContactName')
 
     # ✅ Show summary for this day
     total_shops = len(rows)
