@@ -475,65 +475,124 @@ def get_setting(key: str, default: str | None = None) -> str | None:
 def import_shops_from_json(json_data: list, overwrite: bool = True):
     """Import shops from SharePoint List JSON data."""
     import pandas as pd
-    
+    import streamlit as st  # 用來顯示錯誤
+
     if not json_data:
         print("⚠️ No data received from SharePoint List")
         return
 
-    # Map SharePoint List columns to our DB columns
+    # 1. 轉成 DataFrame
     df = pd.DataFrame(json_data)
     
-    # 欄位對應表 (請依據你的 SharePoint List 實際欄位名稱修改左邊的 Key)
-    column_mapping = {
-        "Title": "shop_id",            # 假設 Shop Code 是 Title 欄位
+    # Debug: 印出收到的欄位名稱，方便你檢查
+    print(f"SharePoint JSON Columns: {df.columns.tolist()}")
+
+    # 2. 定義欄位映射 (左邊是 SharePoint 可能的名稱, 右邊是 DB 欄位)
+    # 根據你的 CSV XML Schema，這些是 field_X 代號
+    # 請根據實際情況增減
+    possible_mappings = {
+        # Shop ID / Code
+        "field_6": "shop_id",  # CSV 顯示 Shop Code 是 field_6
+        "ShopCode": "shop_id",
+        "Title": "shop_id",    # 有時候 Title 被當作 Code
+        
+        # Shop Name
+        "field_7": "shop_name",
         "ShopName": "shop_name",
+        
+        # Address
+        "field_8": "address_zh",
         "AddressChi": "address_zh",
+        "field_14": "address_en",
         "AddressEng": "address_en",
+        
+        # Region / District
+        "field_9": "region_code",
         "Region": "region_code",
-        "Area": "area_en",
+        "field_16": "district_en",
         "District": "district_en",
-        "MTR_x0028_Y_x002f_N_x0029_": "is_mtr", # 範例：MTR (Y/N) 的內部名稱
+        "field_10": "area_en", # Area
+        
+        # Brand
+        "field_11": "brand",
         "Brand": "brand",
-        "BusinessUnit": "business_unit",
-        "Brandicon": "brand_icon_url",
+        
+        # Lat / Lng
+        "field_20": "lat",
         "Latitude": "lat",
+        "field_21": "lng",
         "Longitude": "lng",
-        "Available": "is_active",
+        
+        # Contact / Phone
+        "field_37": "phone",
         "TelephoneNumber": "phone",
-        "Contactname": "contact_name"
+        "field_38": "contact_name",
+        "Contactname": "contact_name",
+        
+        # Active Status
+        "field_35": "is_active", # Available
+        "Available": "is_active",
+        
+        # MTR
+        "field_17": "is_mtr",
+        "MTR": "is_mtr"
     }
-    
-    # 重新命名欄位
+
+    # 3. 執行重新命名
     rename_dict = {}
-    for sp_col, db_col in column_mapping.items():
+    for sp_col, db_col in possible_mappings.items():
         if sp_col in df.columns:
             rename_dict[sp_col] = db_col
             
     df_new = df.rename(columns=rename_dict)
-    
-    # 簡單資料清理
-    if "shop_id" in df_new.columns:
-        df_new = df_new[df_new["shop_id"].notna()]
-        df_new["shop_id"] = df_new["shop_id"].astype(str)
-        
-    # 處理 Boolean 欄位
-    if "is_mtr" in df_new.columns:
-        df_new["is_mtr"] = df_new["is_mtr"].apply(lambda x: 1 if x == True or x == "Y" else 0)
-        
-    if "is_active" in df_new.columns:
-        df_new["is_active"] = df_new["is_active"].apply(lambda x: 1 if x == True or x == "Y" else 0)
 
-    # 補齊資料庫需要的欄位 (若 SharePoint 沒給)
-    required_cols = ["shop_id", "shop_name", "address_zh", "region_code", "district_en", "lat", "lng", "brand"]
-    for col in required_cols:
+    # 4. 確保擁有所有必要欄位 (如果沒對應到，就填 None)
+    required_db_cols = [
+        "shop_id", "shop_name", "address_zh", "address_en", 
+        "region_code", "area_en", "district_en", 
+        "is_mtr", "brand", "business_unit", "brand_icon_url", 
+        "lat", "lng", "is_active", "phone", "contact_name"
+    ]
+    
+    for col in required_db_cols:
         if col not in df_new.columns:
             df_new[col] = None
 
-    # 寫入資料庫
+    # 5. 資料清洗
+    # 移除 shop_id 為空的行
+    if "shop_id" in df_new.columns:
+        df_new = df_new[df_new["shop_id"].notna() & (df_new["shop_id"].astype(str).str.strip() != "")]
+        df_new["shop_id"] = df_new["shop_id"].astype(str)
+
+    # 處理 Boolean (is_active / is_mtr)
+    for bool_col in ["is_active", "is_mtr"]:
+        if bool_col in df_new.columns:
+            # 針對 Y/N, True/False, 1/0 做標準化
+            df_new[bool_col] = df_new[bool_col].apply(
+                lambda x: 1 if str(x).upper() in ['Y', 'YES', 'TRUE', '1'] else 0
+            )
+
+    # 6. 只保留 DB 需要的欄位
+    df_final = df_new[required_db_cols].copy()
+
+    # 7. 寫入資料庫
     with get_db_connection() as conn:
         if overwrite:
-            df_new.to_sql("shop_master", conn, if_exists="replace", index=False)
+            # 這裡用 replace，但因為我們已經確保了欄位完整性，所以不會導致缺欄位
+            df_final.to_sql("shop_master", conn, if_exists="replace", index=False)
         else:
-            df_new.to_sql("shop_master", conn, if_exists="append", index=False)
-            
-    print(f"✓ Successfully imported {len(df_new)} shops from SharePoint List")
+            # append 時要小心重複
+            for _, row in df_final.iterrows():
+                try:
+                    # 使用 INSERT OR REPLACE (SQLite 語法)
+                    keys = ",".join(required_db_cols)
+                    placeholders = ",".join(["?"] * len(required_db_cols))
+                    values = tuple(row[col] for col in required_db_cols)
+                    conn.execute(
+                        f"INSERT OR REPLACE INTO shop_master ({keys}) VALUES ({placeholders})",
+                        values
+                    )
+                except Exception as e:
+                    print(f"Error inserting row {row.get('shop_id')}: {e}")
+
+    print(f"✓ Successfully imported {len(df_final)} shops from SharePoint List (JSON)")
