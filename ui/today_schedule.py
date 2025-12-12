@@ -204,10 +204,19 @@ def render():
 
     
 
-def _render_row(idx: int, row: dict, group_num: int):
-    """Render a single shop row with actions."""
-    shop_id = row["shop_id"]
-    route_order = row.get("day_route_order", 0)
+def _render_row(idx, row, group_num):
+    # 1. 補上變數定義 (從 row 取值)
+    shop_id = row.get("shop_id", "Unknown")
+    route_order = row.get("day_route_order", idx + 1)
+    
+    # 2. 獲取唯一識別碼 (優先用 schedule_id)
+    unique_id = row.get("schedule_id") or shop_id or idx
+    
+    # 3. 建立唯一的 key (包含 group_num 避免跨群組衝突)
+    # 統一在這裡定義，下面直接用
+    done_key = f"btn_done_{group_num}_{unique_id}_{idx}"
+    closed_key = f"btn_closed_{group_num}_{unique_id}_{idx}"
+    resched_key = f"btn_resched_{group_num}_{unique_id}_{idx}"
     
     # ✅ Show route order number
     col_order, col_info, col_contact, col_actions = st.columns([0.5, 3, 2.5, 2])
@@ -217,22 +226,30 @@ def _render_row(idx: int, row: dict, group_num: int):
         st.caption("Order")
     
     with col_info:
+        # 使用 .get 避免 KeyError
+        shop_name = row.get('shop_name', 'Unknown Shop')
+        address = row.get('address_zh', '')
+        
         st.markdown(
-            f"**{shop_id} — {row['shop_name']}**\n\n"
-            f"{row['address_zh']}"
+            f"**{shop_id} — {shop_name}**\n\n"
+            f"{address}"
         )
         
+        status = row.get("status", "Planned")
         status_emoji = {
             "Planned": "📅",
             "Done": "✅",
             "Closed": "🚫",
             "Rescheduled": "📆"
-        }.get(row["status"], "❓")
+        }.get(status, "❓")
+        
+        region = row.get('region_code', '-')
+        district = row.get('district_en', '-')
         
         st.caption(
-            f"{status_emoji} Status: **{row['status']}** | "
-            f"Region: {row['region_code']} | "
-            f"District: {row['district_en']}"
+            f"{status_emoji} Status: **{status}** | "
+            f"Region: {region} | "
+            f"District: {district}"
         )
         
         # ✅ Show coordinates if available
@@ -259,29 +276,27 @@ def _render_row(idx: int, row: dict, group_num: int):
     
     with col_actions:
         # ✅ Only show actions if status is Planned
-        if row["status"] == "Planned":
-            done_key = f"done_{group_num}_{idx}"
-            closed_key = f"closed_{group_num}_{idx}"
-            resched_key = f"resched_{group_num}_{idx}"
-            
+        if status == "Planned":
+            # 直接使用上面定義好的 key
             if st.button("✅ Done", key=done_key, use_container_width=True):
                 st.session_state["action"] = ("done", shop_id)
-                st.session_state["action_date"] = row["date"]
+                st.session_state["action_date"] = row.get("date")
                 st.rerun()
             
             if st.button("🚫 Closed", key=closed_key, use_container_width=True):
                 st.session_state["action"] = ("closed", shop_id)
-                st.session_state["action_date"] = row["date"]
+                st.session_state["action_date"] = row.get("date")
                 st.rerun()
             
             if st.button("📆 Reschedule", key=resched_key, use_container_width=True):
                 st.session_state["action"] = ("resched", shop_id)
-                st.session_state["action_date"] = row["date"]
+                st.session_state["action_date"] = row.get("date")
                 st.rerun()
         else:
-            st.caption(f"Status: {row['status']}")
+            st.caption(f"Status: {status}")
     
     st.divider()
+
 
 
 def _handle_actions(selected_date: datetime.date):
