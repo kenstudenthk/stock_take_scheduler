@@ -73,8 +73,15 @@ def initialize_app():
 
 def main():
     """Main application entry point."""
+    # st.set_page_config(...)
     
-    # Initialize app on first run
+    # --- 暫時除錯用 ---
+    import sqlite3
+    conn = sqlite3.connect('data/stock_take.db') # 或是你的 db 路徑
+    st.write("Shop Master Columns:", [row[1] for row in conn.execute("PRAGMA table_info(shop_master)")])
+    conn.close()
+    # ----------------
+    
     initialize_app()
     
     # Header

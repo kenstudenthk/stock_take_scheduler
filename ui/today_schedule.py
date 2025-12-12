@@ -79,11 +79,11 @@ def render():
         cur = conn.cursor()
         cur.execute(
             """
-            SELECT s.*, sm.shop_name, sm.address_zh, sm.region_code, sm.district_en,
-                   sm.phone, sm.contact_name, sm.brand, sm.lat, sm.lng
+            SELECT s.*, sm.shop_name, sm.address_zh, sm.region, sm.district_en,
+            sm.telephone_number, sm.contact_name, sm.brand, sm.latitude, sm.longitude
             FROM schedule s
             JOIN shop_master sm ON s.shop_id = sm.shop_id
-            WHERE s.date = ?
+            WHERE s.scheduled_date = ?
             ORDER BY s.group_no ASC, s.day_route_order ASC;
             """,
             (selected_date.isoformat(),),
