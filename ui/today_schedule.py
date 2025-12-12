@@ -142,8 +142,9 @@ def render():
         group_rows = [r for r in rows if r["group_no"] == group_num]
         
         with st.expander(f"🗂️ Group {group_num} ({len(group_rows)} shops)", expanded=(group_num == 1)):
-            for idx, r in enumerate(group_rows):
-                _render_row(idx, r, group_num)
+                for idx, r in enumerate(data):
+                    group_num = r.get("group_no", 1)  # 使用 .get 安全獲取
+                    _render_row(idx, r, group_num)
 
   # ui/today_schedule.py
 # 在現有程式碼最後加入以下內容
