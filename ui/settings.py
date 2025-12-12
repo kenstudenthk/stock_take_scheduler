@@ -242,4 +242,3 @@ def render():
                 except Exception as e:
                     st.error(f"同步失敗：{e}")
 
-
