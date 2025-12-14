@@ -729,6 +729,62 @@ def sync_schedule_back_to_sharepoint(start_date: str | None = None) -> bool:
         print(f"❌ 同步失敗: {e}")
         return False
 
+import requests  # 如果檔案上面還沒 import，就補這行
+
+def update_sharepoint_item_status(
+    item_id: int,
+    new_status: str,
+    list_url: str | None = None,
+    token: str | None = None,
+    status_field_internal_name: str = "ScheduleStatus",
+) -> bool:
+    """
+    直接更新 SharePoint List 某一筆 item 的狀態欄位。
+
+    item_id: SharePoint List item 的 ID（整數）
+    new_status: 要寫入的狀態 (例如 "Closed", "Done", "Rescheduled")
+    list_url: Settings 裡的 SharePoint List API URL（不含 /items(...)）
+    token: Bearer access token（從 Graph Explorer 貼過來）
+    status_field_internal_name: 清單裡狀態欄位的 internal name，預設 "ScheduleStatus"
+    """
+    # 如果呼叫端沒傳，就從 settings 拿
+    if list_url is None:
+        list_url = get_setting("SHAREPOINT_LIST_URL")
+    if token is None:
+        token = get_setting("SHAREPOINT_ACCESS_TOKEN")
+
+    if not list_url or not token:
+        print("⚠️ SHAREPOINT_LIST_URL 或 SHAREPOINT_ACCESS_TOKEN 未設定，略過 SharePoint 更新")
+        return False
+
+    # 組 URL：<list_url>/items(<ID>)
+    url = f"{list_url}/items({item_id})"
+
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Accept": "application/json;odata=verbose",
+        "Content-Type": "application/json;odata=verbose",
+        "IF-MATCH": "*",
+        "X-HTTP-Method": "MERGE",
+    }
+
+    # 僅更新一個欄位即可；如果你的欄位 internal name 不是 Status，請改參數
+    body = {
+        status_field_internal_name: new_status,
+    }
+
+    try:
+        resp = requests.post(url, headers=headers, json=body, timeout=15)
+        # SharePoint 成功更新通常回 204 No Content
+        if resp.status_code in (200, 204):
+            print(f"✅ SharePoint item {item_id} updated to status='{new_status}'")
+            return True
+        else:
+            print(f"❌ 更新 SharePoint 失敗: {resp.status_code} {resp.text}")
+            return False
+    except Exception as e:
+        print(f"❌ 呼叫 SharePoint REST API 更新失敗: {e}")
+        return False
 
 
 
