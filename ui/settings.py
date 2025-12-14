@@ -19,9 +19,10 @@ def render():
         key="pa_schedule_write_url",
     )
 
-    if st.button("💾 Save schedule write URL"):
+    if st.button("💾 Save schedule write URL", key="save_pa_schedule_write_url"):
         data_access.set_setting("PA_SCHEDULE_WRITE_URL", (pa_write_url or "").strip())
         st.success("Schedule write URL 已儲存。")
+
         
     cap_str = data_access.get_setting("shops_per_day", "20")
     try:
