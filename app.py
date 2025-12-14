@@ -75,7 +75,7 @@ def initialize_app():
 def main():
     # ❌ 這裡絕對不能再有 st.set_page_config !!! 
     # 這是為了確保不會報 StreamlitAPIException
-
+    data_access.init_db()
     # --- 🛠️ 側邊欄：修復工具 (Debug) ---
     with st.sidebar:
         st.title("🔧 Debug Tools")
