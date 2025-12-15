@@ -321,6 +321,7 @@ def _handle_actions(selected_date: datetime.date):
     
     try:
         if action == "done":
+            # ✅ Step 1: Update local database
             data_access.update_schedule_status(
                 selected_date.isoformat(),
                 shop_id,
@@ -328,8 +329,12 @@ def _handle_actions(selected_date: datetime.date):
                 None,
             )
             st.success(f"✅ Marked {shop_id} as Done.")
+            
+            # ✅ Step 2: Sync to SharePoint (NEW)
+            _sync_to_sharepoint(shop_id, "Done")
         
         elif action == "closed":
+            # ✅ Step 1: Update local database
             data_access.update_schedule_status(
                 selected_date.isoformat(),
                 shop_id,
@@ -341,6 +346,9 @@ def _handle_actions(selected_date: datetime.date):
             
             # ✅ Clear holidays cache if shop data changed
             holidays.clear_holidays_cache()
+            
+            # ✅ Step 2: Sync to SharePoint (NEW)
+            _sync_to_sharepoint(shop_id, "Closed")
         
         elif action == "resched":
             new_date = _find_next_available_date(selected_date, max_days=14)
@@ -348,12 +356,16 @@ def _handle_actions(selected_date: datetime.date):
             if new_date is None:
                 st.error("❌ No available date within next 14 days for re-schedule.")
             else:
+                # ✅ Step 1: Update local database
                 data_access.move_schedule_to_new_date(
                     selected_date.isoformat(),
                     new_date.isoformat(),
                     shop_id,
                 )
                 st.info(f"📆 Re-scheduled {shop_id} to {new_date.isoformat()}.")
+                
+                # ✅ Step 2: Sync to SharePoint (NEW)
+                _sync_to_sharepoint(shop_id, "Rescheduled")
     
     except Exception as e:
         st.error(f"Error performing action: {str(e)}")
@@ -362,6 +374,54 @@ def _handle_actions(selected_date: datetime.date):
         # Clear action so it does not repeat
         st.session_state.pop("action", None)
         st.session_state.pop("action_date", None)
+        
+def _sync_to_sharepoint(shop_id: str, new_status: str):
+        """
+        Sync status update to SharePoint List.
+        
+        Args:
+            shop_id: Shop code (e.g. "S001")
+            new_status: New status value ("Done", "Closed", "Rescheduled")
+        """
+        # ✅ Step 1: Get SharePoint settings
+        list_url = data_access.get_setting("SHAREPOINT_LIST_URL")
+        token = data_access.get_setting("SHAREPOINT_ACCESS_TOKEN")
+        
+        # ✅ Step 2: Check if settings are configured
+        if not list_url or not token:
+            st.info(
+                "ℹ️ SharePoint sync skipped: Please configure SharePoint settings in Settings tab."
+            )
+            return
+        
+        # ✅ Step 3: Get SharePoint Item ID
+        try:
+            item_id = data_access._get_sharepoint_item_id(shop_id, list_url, token)
+            
+            if item_id is None:
+                st.warning(
+                    f"⚠️ SharePoint sync failed: Could not find Item ID for shop {shop_id}"
+                )
+                return
+            
+            # ✅ Step 4: Update SharePoint item status
+            success = data_access.update_sharepoint_item_status(
+                item_id=item_id,
+                new_status=new_status,
+                list_url=list_url,
+                token=token,
+                status_field_internal_name="ScheduleStatus"  # ✅ Confirm this field name
+            )
+            
+            if success:
+                st.success(f"✅ Status synced to SharePoint (Item ID: {item_id})")
+            else:
+                st.warning(f"⚠️ SharePoint sync failed for shop {shop_id}")
+                
+        except Exception as e:
+            st.warning(f"⚠️ SharePoint sync error: {str(e)}")
+            # Don't raise exception - local update already succeeded
+
 
 
 
