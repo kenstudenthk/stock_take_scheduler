@@ -3,100 +3,65 @@ import streamlit as st
 from core import data_access, scheduler_engine
 
 
+# ui/generate_schedule.py
+
+import streamlit as st
+from datetime import date, timedelta
+from core import data_access, holidays, scheduler_engine
+
 def render():
+    """Render the Generate Schedule page."""
     st.subheader("🗓️ Generate Schedule")
     
-    # Read default capacity from settings
-    cap_str = data_access.get_setting("shops_per_day", "20")
-    try:
-        default_cap = int(cap_str)
-    except (TypeError, ValueError):
-        default_cap = 20
-    
-    shops_per_day = st.number_input(
-        "Daily shops to schedule",
-        min_value=1,
-        max_value=60,
-        value=default_cap,
-        step=1,
-    )
-    
-    start_date = st.date_input("Start date (business days only)")
-    
-    # Summary box
-    total_shops = data_access.count_active_shops()
-    required_days = scheduler_engine.estimate_required_business_days(
-        total_shops,
-        shops_per_day,
-    )
-    
-    est_finish = scheduler_engine.estimate_finish_date(
-        start_date,
-        required_days,
-    )
-    
-    with st.container():
-        st.markdown(
-            f"""
-            > **Summary**
-            > • Total shops to stock-take: **{total_shops}**
-            > • Required business days (Mon–Fri, exclude holidays): **{required_days}**
-            > • Estimated finish date: **{est_finish}**
-            """
-        )
-    
-    st.caption(
-        "Scheduling uses weekdays only. Saturdays, Sundays and Hong Kong public "
-        "holidays are skipped."
-    )
-    
-    st.markdown("---")
-    st.markdown("### Filters")
-    
+    # ========== Date Range Selection ==========
     col1, col2 = st.columns(2)
     
     with col1:
-        mtr_option = st.radio(
-            "Include MTR station shops?",
-            ["Yes", "No", "Separate plan"],
-            index=0,
+        start_date = st.date_input(
+            "Start Date",
+            value=date.today(),
+            key="gen_start_date"
         )
     
     with col2:
-        cross_region = st.radio(
-            "Cross-region scheduling?",
-            ["Allow", "Limit to same region"],
-            index=0,
+        end_date = st.date_input(
+            "End Date",
+            value=date.today() + timedelta(days=30),
+            key="gen_end_date"
         )
     
-    st.markdown("#### Regions")
-    regions = st.multiselect(
-        "Select regions",
-        options=["Hong Kong Island", "Kowloon", "New Territories", "Islands", "Macau"],
-        default=["Hong Kong Island", "Kowloon", "New Territories", "Islands", "Macau"],
-    )
+    # ========== Schedule Parameters ==========
+    col_param1, col_param2 = st.columns(2)
     
-    # Dynamic districts from database
-    st.markdown("#### Specific districts (based on selected regions)")
-    with data_access.get_db_connection() as conn:
-        cur = conn.cursor()
-        cur.execute("SELECT DISTINCT district_en FROM shop_master WHERE district_en IS NOT NULL ORDER BY district_en;")
-        all_districts = [row[0] for row in cur.fetchall() if row[0]]
+    with col_param1:
+        shops_per_day = st.number_input(
+            "Shops per day",
+            min_value=1,
+            max_value=60,
+            value=int(data_access.get_setting("shops_per_day", "20")),
+            key="gen_shops_per_day"
+        )
     
-    districts = st.multiselect(
-        "Specific districts (leave empty for all)",
-        options=all_districts,
-        help="Select specific districts to filter shops. Leave empty to include all districts.",
-    )
+    with col_param2:
+        groups_per_day = st.number_input(
+            "Groups per day",
+            min_value=1,
+            max_value=10,
+            value=int(data_access.get_setting("groups_per_day", "3")),
+            key="gen_groups_per_day"
+        )
     
-     # ========== Region Filter ==========
+    # ========== Region & District Filters ==========
     with st.expander("🗺️ Region & District Filters", expanded=False):
         # Get unique regions
         with data_access.get_db_connection() as conn:
             cur = conn.cursor()
-            
-            # ✅ 修正：改用 region (不是 region_code)
-            cur.execute("SELECT DISTINCT region FROM shop_master WHERE region IS NOT NULL ORDER BY region;")
+            cur.execute("""
+                SELECT DISTINCT region 
+                FROM shop_master 
+                WHERE region IS NOT NULL AND is_active = 'Y'
+                ORDER BY region
+            """)
             regions = [row[0] for row in cur.fetchall()]
         
         selected_regions = st.multiselect(
@@ -106,19 +71,27 @@ def render():
             help="Leave empty to include all regions"
         )
         
-        # Get unique districts
+        # Get unique districts (filtered by selected regions)
         with data_access.get_db_connection() as conn:
             cur = conn.cursor()
             
-            # ✅ 修正：改用 district (不是 district_en)
             if selected_regions:
                 placeholders = ','.join('?' * len(selected_regions))
-                cur.execute(
-                    f"SELECT DISTINCT district FROM shop_master WHERE region IN ({placeholders}) AND district IS NOT NULL ORDER BY district;",
-                    selected_regions
-                )
+                cur.execute(f"""
+                    SELECT DISTINCT district 
+                    FROM shop_master 
+                    WHERE region IN ({placeholders}) 
+                    AND district IS NOT NULL 
+                    AND is_active = 'Y'
+                    ORDER BY district
+                """, selected_regions)
             else:
-                cur.execute("SELECT DISTINCT district FROM shop_master WHERE district IS NOT NULL ORDER BY district;")
+                cur.execute("""
+                    SELECT DISTINCT district 
+                    FROM shop_master 
+                    WHERE district IS NOT NULL AND is_active = 'Y'
+                    ORDER BY district
+                """)
             
             districts = [row[0] for row in cur.fetchall()]
         
@@ -133,7 +106,12 @@ def render():
     with st.expander("🏢 Brand Filter", expanded=False):
         with data_access.get_db_connection() as conn:
             cur = conn.cursor()
-            cur.execute("SELECT DISTINCT brand FROM shop_master WHERE brand IS NOT NULL ORDER BY brand;")
+            cur.execute("""
+                SELECT DISTINCT brand 
+                FROM shop_master 
+                WHERE brand IS NOT NULL AND is_active = 'Y'
+                ORDER BY brand
+            """)
             brands = [row[0] for row in cur.fetchall()]
         
         selected_brand = st.selectbox(
@@ -143,126 +121,75 @@ def render():
             help="Filter by specific brand"
         )
     
-    
+    # ========== Generate Button ==========
     st.markdown("---")
-    st.markdown("### Algorithm Options")
     
-    # ✅ NEW: Clustering toggle
-    use_clustering = st.checkbox(
-        "🔬 Use proximity-based clustering (Recommended)",
-        value=True,
-        help=(
-            "Enable geographical clustering to minimize travel time. "
-            "This groups nearby shops together on the same day. "
-            "Inspired by 2024 R script algorithm."
-        ),
-    )
-    
-    if use_clustering:
-        st.info(
-            "✨ **New Algorithm Features:**\n\n"
-            "• Identifies nearby shops within 5.5 km radius\n"
-            "• Groups shops by geographical proximity\n"
-            "• Ensures same-region shops are scheduled together\n"
-            "• Reduces average daily travel time by 30-40%"
-        )
-    
-    include_distance = st.checkbox(
-        "Include distance / time calculation (AMap)",
-        value=False,
-        help=(
-            "If checked, the app will call AMap for each route segment to "
-            "estimate distance and travel time. This takes longer."
-        ),
-    )
-    
-    generate = st.button("Generate schedule", type="primary")
-    
-    if generate:
-        # Validate inputs
-        if not regions:
-            st.error("Please select at least one region.")
+    if st.button("🚀 Generate Schedule", type="primary", use_container_width=True):
+        
+        # Validate date range
+        if end_date < start_date:
+            st.error("❌ End date must be after start date")
             return
         
-        with st.spinner("Calculating schedule (business days only)..."):
+        with st.spinner("Generating schedule..."):
             try:
-                result = scheduler_engine.generate_schedule(
+                # Build filters
+                filters = {}
+                
+                if selected_regions:
+                    filters['regions'] = selected_regions
+                
+                if selected_districts:
+                    filters['districts'] = selected_districts
+                
+                if selected_brand and selected_brand != "All":
+                    filters['brand'] = selected_brand
+                
+                # Generate schedule
+                schedule_result = scheduler_engine.generate_schedule(
+                    start_date=start_date.isoformat(),
+                    end_date=end_date.isoformat(),
                     shops_per_day=shops_per_day,
-                    start_date=start_date,
-                    regions=regions,
-                    districts=districts if districts else None,
-                    include_mtr=mtr_option,
-                    cross_region=cross_region,
-                    include_distance=include_distance,
-                    use_clustering=use_clustering,  # ✅ NEW parameter
+                    groups_per_day=groups_per_day,
+                    filters=filters
                 )
                 
-                st.success(
-                    f"✓ Schedule generated with {result.total_shops} shops "
-                    f"over {result.business_days} business days. "
-                    f"Finish date: {result.finish_date}"
-                )
-                
-                # ✅ NEW: Show clustering quality if available
-                if result.cluster_quality:
-                    st.markdown("### 📊 Clustering Quality Metrics")
-                    col1, col2, col3, col4 = st.columns(4)
+                # Save to database
+                if schedule_result and len(schedule_result) > 0:
+                    # Clear existing schedules first
+                    data_access.delete_all_schedules()
                     
-                    with col1:
-                        st.metric(
-                            "Avg intra-cluster distance",
-                            f"{result.cluster_quality['avg_intra_cluster_distance_km']} km"
-                        )
-                    with col2:
-                        st.metric(
-                            "Region consistency",
-                            f"{result.cluster_quality['region_consistency_pct']}%"
-                        )
-                    with col3:
-                        st.metric(
-                            "Total clusters",
-                            result.cluster_quality['total_clusters']
-                        )
-                    with col4:
-                        st.metric(
-                            "Avg cluster size",
-                            result.cluster_quality['avg_cluster_size']
-                        )
-                
-                # Show distance/time if calculated
-                if include_distance:
-                    with data_access.get_db_connection() as conn:
-                        cur = conn.cursor()
-                        cur.execute(
-                            "SELECT SUM(day_total_distance_km), SUM(day_total_travel_time_min) "
-                            "FROM schedule;"
-                        )
-                        total_dist_km, total_time_min = cur.fetchone()
+                    # Save new schedule
+                    success = data_access.save_schedule_batch(schedule_result)
                     
-                    if total_dist_km is not None and total_time_min is not None:
-                        st.info(
-                            f"📍 Approx. total driving distance: {total_dist_km:.1f} km\n\n"
-                            f"⏱️ Approx. total travel time: {total_time_min/60:.1f} hours"
-                        )
-                
-                _render_stats(result)
-                
-                # Sync to SharePoint
-                with st.spinner("Syncing schedule back to SharePoint Lists..."):
-                    ok = data_access.sync_schedule_back_to_sharepoint(
-                        start_date=start_date.isoformat()
-                    )
-                
-                if ok:
-                    st.success("✅ Schedule has been synced back to SharePoint Lists.")
+                    if success:
+                        st.success(f"✅ Generated {len(schedule_result)} schedule records!")
+                        
+                        # Show summary
+                        col_sum1, col_sum2, col_sum3 = st.columns(3)
+                        
+                        with col_sum1:
+                            st.metric("Total Shops", len(schedule_result))
+                        
+                        with col_sum2:
+                            unique_dates = len(set([s['schedule_date'] for s in schedule_result]))
+                            st.metric("Days", unique_dates)
+                        
+                        with col_sum3:
+                            st.metric("Groups/Day", groups_per_day)
+                        
+                        st.info("💡 Go to 'Today Schedule' to view the schedule")
+                    else:
+                        st.error("❌ Failed to save schedule to database")
                 else:
-                    st.warning("⚠️ Schedule generated, but failed to sync to SharePoint.")
+                    st.warning("⚠️ No schedule generated (no shops match filters?)")
                     
             except Exception as e:
-                st.error(f"Error generating schedule: {str(e)}")
-                import traceback
+                st.error(f"❌ Error generating schedule: {str(e)}")
                 with st.expander("Show error details"):
+                    import traceback
                     st.code(traceback.format_exc())
+
 
 
 def _render_stats(result: scheduler_engine.ScheduleResult):
