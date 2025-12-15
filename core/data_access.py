@@ -805,6 +805,181 @@ def update_sharepoint_item_status(
         import traceback
         traceback.print_exc()
         return False
-
-
-
+    
+def import_shops_from_sharepoint(
+    list_url: str | None = None,
+    token: str | None = None,
+    overwrite: bool = False
+) -> dict:
+    """
+    從 SharePoint List 匯入店舖資料到本地資料庫
+    
+    Args:
+        list_url: Microsoft Graph List URL
+        token: Access Token
+        overwrite: 是否覆蓋現有資料
+        
+    Returns:
+        {"success": int, "failed": int, "skipped": int}
+    """
+    import requests
+    
+    # 從 settings 讀取（如果未提供）
+    if list_url is None:
+        list_url = get_setting("SHAREPOINT_LIST_URL")
+    if token is None:
+        token = get_setting("SHAREPOINT_ACCESS_TOKEN")
+    
+    if not list_url or not token:
+        raise ValueError("SharePoint URL 或 Token 未設定")
+    
+    print("📥 開始從 SharePoint 匯入店舖資料...")
+    
+    # Step 1: 取得所有 SharePoint List 項目
+    query_url = f"{list_url}/items?$select=id&$expand=fields&$top=5000"
+    
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Accept": "application/json"
+    }
+    
+    try:
+        response = requests.get(query_url, headers=headers, timeout=30)
+        
+        if response.status_code != 200:
+            raise Exception(f"SharePoint API 錯誤: {response.status_code} - {response.text}")
+        
+        data = response.json()
+        items = data.get("value", [])
+        
+        print(f"📊 從 SharePoint 取得 {len(items)} 筆資料")
+        
+        if not items:
+            return {"success": 0, "failed": 0, "skipped": 0}
+        
+        # Step 2: 解析資料並寫入資料庫
+        success_count = 0
+        failed_count = 0
+        skipped_count = 0
+        
+        with get_db_connection() as conn:
+            cur = conn.cursor()
+            
+            for item in items:
+                try:
+                    fields = item.get("fields", {})
+                    
+                    # 必要欄位檢查
+                    shop_id = fields.get("field_6")  # Shop Code
+                    if not shop_id:
+                        print(f"⚠️ 跳過：缺少 Shop Code (field_6)")
+                        skipped_count += 1
+                        continue
+                    
+                    # 如果不覆蓋，檢查是否已存在
+                    if not overwrite:
+                        cur.execute("SELECT 1 FROM shop_master WHERE shop_id = ?", (shop_id,))
+                        if cur.fetchone():
+                            print(f"⏭️ 跳過 {shop_id}（已存在）")
+                            skipped_count += 1
+                            continue
+                    
+                    # 準備資料（對應您的 SharePoint 欄位）
+                    shop_data = {
+                        "shop_id": shop_id,
+                        "shop_name": fields.get("field_7", ""),  # Shop Name
+                        "address": fields.get("field_8", ""),  # Address
+                        "region": fields.get("field_9", ""),  # Region
+                        "district": fields.get("field_10", ""),  # District
+                        "brand": fields.get("field_11", ""),  # Brand
+                        "brand_code": fields.get("field_12", ""),  # Brand Code
+                        "division": fields.get("field_13", ""),  # Division
+                        "english_address": fields.get("field_14", ""),  # English Address
+                        "location": fields.get("field_15", ""),  # Location
+                        "lat": fields.get("field_20", 0.0),  # Latitude
+                        "lng": fields.get("field_21", 0.0),  # Longitude
+                        "brand_icon_url": fields.get("field_22", ""),  # Brand Icon
+                        "is_mtr": fields.get("field_17", "N"),  # Is MTR
+                        "phone": fields.get("field_37", ""),  # Phone
+                        "is_active": "Y" if fields.get("field_35") == "Y" else "N",  # Active flag
+                    }
+                    
+                    # 寫入或更新資料庫
+                    if overwrite:
+                        # UPSERT 操作
+                        cur.execute("""
+                            INSERT OR REPLACE INTO shop_master (
+                                shop_id, shop_name, address, region, district,
+                                brand, brand_code, division, english_address, location,
+                                lat, lng, brand_icon_url, is_mtr, phone, is_active
+                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        """, (
+                            shop_data["shop_id"],
+                            shop_data["shop_name"],
+                            shop_data["address"],
+                            shop_data["region"],
+                            shop_data["district"],
+                            shop_data["brand"],
+                            shop_data["brand_code"],
+                            shop_data["division"],
+                            shop_data["english_address"],
+                            shop_data["location"],
+                            shop_data["lat"],
+                            shop_data["lng"],
+                            shop_data["brand_icon_url"],
+                            shop_data["is_mtr"],
+                            shop_data["phone"],
+                            shop_data["is_active"]
+                        ))
+                    else:
+                        # 只插入新記錄
+                        cur.execute("""
+                            INSERT INTO shop_master (
+                                shop_id, shop_name, address, region, district,
+                                brand, brand_code, division, english_address, location,
+                                lat, lng, brand_icon_url, is_mtr, phone, is_active
+                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        """, (
+                            shop_data["shop_id"],
+                            shop_data["shop_name"],
+                            shop_data["address"],
+                            shop_data["region"],
+                            shop_data["district"],
+                            shop_data["brand"],
+                            shop_data["brand_code"],
+                            shop_data["division"],
+                            shop_data["english_address"],
+                            shop_data["location"],
+                            shop_data["lat"],
+                            shop_data["lng"],
+                            shop_data["brand_icon_url"],
+                            shop_data["is_mtr"],
+                            shop_data["phone"],
+                            shop_data["is_active"]
+                        ))
+                    
+                    success_count += 1
+                    print(f"✅ 成功匯入: {shop_id}")
+                    
+                except Exception as e:
+                    failed_count += 1
+                    print(f"❌ 匯入失敗 {shop_id}: {e}")
+            
+            conn.commit()
+        
+        print(f"\n📊 匯入完成：")
+        print(f"   ✅ 成功: {success_count}")
+        print(f"   ❌ 失敗: {failed_count}")
+        print(f"   ⏭️ 跳過: {skipped_count}")
+        
+        return {
+            "success": success_count,
+            "failed": failed_count,
+            "skipped": skipped_count
+        }
+        
+    except Exception as e:
+        print(f"❌ SharePoint 匯入失敗: {e}")
+        import traceback
+        traceback.print_exc()
+        raise
