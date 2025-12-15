@@ -168,7 +168,7 @@ def render():
             with st.spinner("Generating schedule..."):
                 try:
                     # Prepare regions parameter (full names for scheduler_engine)
-                    regions_param = selected_regions_display if selected_regions_display else None
+                    regions_param = selected_regions if selected_regions else None
                     
                     # Prepare districts parameter
                     districts_param = selected_districts if selected_districts else None
