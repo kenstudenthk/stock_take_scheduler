@@ -281,24 +281,36 @@ def render():
         data_access.set_setting("PA_SCHEDULE_WRITE_URL", (pa_write_url or "").strip())
         st.success("Schedule write URL 已儲存。")
 
-def import_shops_from_sharepoint(
-    list_url: str | None = None,
-    token: str | None = None,
-    overwrite: bool = False
-) -> dict:
+def import_shops_from_sharepoint(list_url, token, overwrite=False):
     """
-    從 SharePoint List 匯入店舖資料到本地資料庫
-    
-    Args:
-        list_url: Microsoft Graph List URL
-        token: Access Token
-        overwrite: 是否覆蓋現有資料
-        
-    Returns:
-        {"success": int, "failed": int, "skipped": int}
+    Import shops from SharePoint using Microsoft Graph API
     """
     import requests
     
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Accept": "application/json"
+    }
+    
+    # 加上 expand=fields 來取得欄位資料
+    url = f"{list_url}?expand=fields"
+    
+    response = requests.get(url, headers=headers)
+    response.raise_for_status()
+    
+    data = response.json()
+    items = data.get("value", [])
+    
+    # 處理每個 item
+    for item in items:
+        fields = item.get("fields", {})
+        
+        # 對應欄位名稱
+        shop_id = fields.get("ShopID") or fields.get("shop_id")
+        shop_name = fields.get("Title") or fields.get("ShopName")
+        region = fields.get("Region")
+        # ... 其他欄位
+
     # 從 settings 讀取（如果未提供）
     if list_url is None:
         list_url = get_setting("SHAREPOINT_LIST_URL")
