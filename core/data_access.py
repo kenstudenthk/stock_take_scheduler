@@ -131,40 +131,52 @@ def add_group_column_if_missing():
 def import_shops_from_csv(overwrite: bool = True):
     """
     從 MxStockTakeMasterList.csv 匯入 shop_master
-    ✅ 欄位名稱已統一對應資料庫結構
+    ✅ 確保欄位名稱與資料庫 schema 完全一致
     """
     if not CSV_PATH.exists():
         raise FileNotFoundError(f"CSV file not found: {CSV_PATH}")
     
     df = pd.read_csv(CSV_PATH)
     
-    # ✅ 欄位對應（統一為資料庫欄位名稱）
+    # ✅ 列印 CSV 欄位名稱以便調試
+    print(f"📋 CSV columns: {list(df.columns)}")
+    
+    # ✅ 欄位對應 (確保使用正確的 CSV 欄位名稱)
     df_new = pd.DataFrame({
         "shop_id": df["Shop Code"].astype(str),
         "shop_name": df["ShopName"],
-        "address": df["Address(Chi)"],                    # ✅ 改為 address
-        "english_address": df["Address(Eng)"],            # ✅ 改為 english_address
-        "region": df["Region"],                           # ✅ 改為 region
-        "district": df["District"],                       # ✅ 改為 district
-        "location": df.get("Area", ""),                   # ✅ 改為 location
-        "is_mtr": (df["MTR(Y/N)"] == "Y").apply(lambda x: "Y" if x else "N"),  # ✅ 改為 Y/N
+        "address": df["Address(Chi)"],
+        "english_address": df["Address(Eng)"],
+        "region": df["Region"],
+        "district": df["District"],
+        "location": df.get("Area", ""),
+        "is_mtr": df["MTR(Y/N)"].apply(lambda x: "Y" if x == "Y" else "N"),
         "brand": df["Brand"],
-        "brand_code": df.get("Business Unit", ""),        # ✅ 改為 brand_code
+        "brand_code": df.get("Business Unit", ""),
         "division": df.get("Business Unit", ""),
         "brand_icon_url": df["Brandicon"],
         "lat": pd.to_numeric(df["Latitude"], errors="coerce"),
         "lng": pd.to_numeric(df["Longitude"], errors="coerce"),
-        "is_active": (df["Available"] == "Y").apply(lambda x: "Y" if x else "N"),  # ✅ 改為 Y/N
+        "is_active": df["Available"].apply(lambda x: "Y" if x == "Y" else "N"),
         "phone": df.get("Telephone Number", ""),
     })
     
     # 過濾空值
     df_new = df_new[df_new["shop_id"].notna() & (df_new["shop_id"] != "")]
     
+    # ✅ 列印 DataFrame 欄位確認
+    print(f"📊 DataFrame columns: {list(df_new.columns)}")
+    print(f"📊 Sample data:\n{df_new.head(2)}")
+    
     # 寫入資料庫
     with get_db_connection() as conn:
         if overwrite:
-            df_new.to_sql("shop_master", conn, if_exists="replace", index=False)
+            # ❌ 不要用 replace,這會刪除 schema!
+            # df_new.to_sql("shop_master", conn, if_exists="replace", index=False)
+            
+            # ✅ 先清空資料,保留 schema
+            conn.execute("DELETE FROM shop_master;")
+            df_new.to_sql("shop_master", conn, if_exists="append", index=False)
         else:
             df_new.to_sql("shop_master", conn, if_exists="append", index=False)
     
