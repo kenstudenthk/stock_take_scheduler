@@ -1,51 +1,72 @@
 # core/route_optimizer.py
-from typing import List
-from ortools.constraint_solver import pywrapcp, routing_enums_pb2
+"""
+TSP (Traveling Salesman Problem) solver for route optimization.
+"""
 
-
-def solve_tsp(distance_matrix: List[List[float]], time_limit_seconds: int = 5) -> List[int]:
+def solve_tsp(distance_matrix: list) -> list:
     """
-    Solve a TSP (Traveling Salesman Problem) using OR-Tools.
+    Solve TSP problem to find optimal visiting order.
     
     Args:
-        distance_matrix: 2D list where distance_matrix[i][j] = distance from node i to j (in meters)
-        time_limit_seconds: Maximum time to spend optimizing (default: 5 seconds)
-    
+        distance_matrix: 2D list of distances (in meters or any unit)
+                        distance_matrix[i][j] = distance from point i to point j
+        
     Returns:
-        List of node indices in optimized visiting order, e.g. [0, 3, 1, 2]
-        Node 0 is treated as the depot/starting point.
-    
-    Note:
-        - For n <= 1, returns the trivial order
-        - If solver fails, returns original order as fallback
+        List of indices representing optimal visit order
+        
+    Example:
+        distance_matrix = [
+            [0, 100, 200],
+            [100, 0, 150],
+            [200, 150, 0]
+        ]
+        result = solve_tsp(distance_matrix)
+        # result might be [0, 1, 2] or [0, 2, 1] depending on which is shorter
     """
     n = len(distance_matrix)
     
-    # ✅ Edge case: empty or single node
-    if n <= 1:
-        return list(range(n))
+    if n == 0:
+        return []
+    if n == 1:
+        return [0]
+    if n == 2:
+        return [0, 1]
     
-    # ✅ Edge case: validate matrix dimensions
-    if any(len(row) != n for row in distance_matrix):
-        raise ValueError(f"Distance matrix must be square, got {n}x{[len(row) for row in distance_matrix]}")
+    try:
+        # Try using OR-Tools (recommended)
+        return _solve_with_ortools(distance_matrix)
+    except ImportError:
+        try:
+            # Fallback to python-tsp
+            return _solve_with_python_tsp(distance_matrix)
+        except ImportError:
+            # Last resort: greedy nearest neighbor
+            return _solve_greedy(distance_matrix)
 
-    # Create routing index manager: n nodes, 1 vehicle, depot at index 0
-    manager = pywrapcp.RoutingIndexManager(n, 1, 0)
+
+def _solve_with_ortools(distance_matrix: list) -> list:
+    """Solve TSP using Google OR-Tools."""
+    from ortools.constraint_solver import routing_enums_pb2
+    from ortools.constraint_solver import pywrapcp
+    
+    n = len(distance_matrix)
+    
+    # Create routing index manager
+    manager = pywrapcp.RoutingIndexManager(n, 1, 0)  # 1 vehicle, start at 0
+    
+    # Create routing model
     routing = pywrapcp.RoutingModel(manager)
-
-    # Distance callback
+    
+    # Define distance callback
     def distance_callback(from_index, to_index):
         from_node = manager.IndexToNode(from_index)
         to_node = manager.IndexToNode(to_index)
-        # ✅ Add bounds checking
-        if from_node >= n or to_node >= n:
-            return 0
         return int(distance_matrix[from_node][to_node])
-
+    
     transit_callback_index = routing.RegisterTransitCallback(distance_callback)
     routing.SetArcCostEvaluatorOfAllVehicles(transit_callback_index)
-
-    # Search parameters
+    
+    # Set search parameters
     search_parameters = pywrapcp.DefaultRoutingSearchParameters()
     search_parameters.first_solution_strategy = (
         routing_enums_pb2.FirstSolutionStrategy.PATH_CHEAPEST_ARC
@@ -53,69 +74,73 @@ def solve_tsp(distance_matrix: List[List[float]], time_limit_seconds: int = 5) -
     search_parameters.local_search_metaheuristic = (
         routing_enums_pb2.LocalSearchMetaheuristic.GUIDED_LOCAL_SEARCH
     )
-    search_parameters.time_limit.seconds = time_limit_seconds
-
-    # ✅ Add logging for debugging (optional)
-    # search_parameters.log_search = True
-
+    search_parameters.time_limit.seconds = 5  # 5 second limit
+    
     # Solve
     solution = routing.SolveWithParameters(search_parameters)
-
+    
     if not solution:
-        # ✅ Better logging
-        print(f"⚠️ TSP solver failed for {n} nodes, using original order")
-        return list(range(n))
-
-    # Extract solution
+        # Fallback to greedy if no solution found
+        return _solve_greedy(distance_matrix)
+    
+    # Extract route
+    route = []
     index = routing.Start(0)
-    order = []
-    visited = set()  # ✅ Detect infinite loops
-    
     while not routing.IsEnd(index):
-        node = manager.IndexToNode(index)
-        if node in visited:  # ✅ Safety check
-            print(f"⚠️ TSP solution has cycle at node {node}")
-            break
-        visited.add(node)
-        order.append(node)
+        route.append(manager.IndexToNode(index))
         index = solution.Value(routing.NextVar(index))
-
-    # ✅ Verify we got all nodes
-    if len(order) != n:
-        print(f"⚠️ TSP solution incomplete: got {len(order)} nodes, expected {n}")
-        return list(range(n))
-
-    return order
+    
+    return route
 
 
-def solve_tsp_with_stats(distance_matrix: List[List[float]]) -> tuple[List[int], dict]:
+def _solve_with_python_tsp(distance_matrix: list) -> list:
+    """Solve TSP using python-tsp library."""
+    import numpy as np
+    from python_tsp.exact import solve_tsp_dynamic_programming
+    from python_tsp.heuristics import solve_tsp_simulated_annealing
+    
+    distance_array = np.array(distance_matrix)
+    n = len(distance_matrix)
+    
+    # Use exact solver for small problems (< 20 nodes)
+    if n < 20:
+        try:
+            permutation, distance = solve_tsp_dynamic_programming(distance_array)
+            return permutation
+        except:
+            pass
+    
+    # Use heuristic for larger problems
+    permutation, distance = solve_tsp_simulated_annealing(distance_array)
+    return list(permutation)
+
+
+def _solve_greedy(distance_matrix: list) -> list:
     """
-    Solve TSP and return solution with statistics.
-    
-    Returns:
-        (order, stats) where stats contains:
-        - total_distance: Total route distance
-        - solving_time: Time spent solving
-        - num_nodes: Number of nodes
+    Greedy nearest neighbor algorithm (fast but not optimal).
+    Start at node 0, always go to nearest unvisited node.
     """
-    import time
+    n = len(distance_matrix)
+    visited = [False] * n
+    route = [0]
+    visited[0] = True
     
-    start_time = time.time()
-    order = solve_tsp(distance_matrix)
-    solving_time = time.time() - start_time
+    current = 0
     
-    # Calculate total distance
-    total_distance = 0.0
-    n = len(order)
-    for i in range(n - 1):
-        from_node = order[i]
-        to_node = order[i + 1]
-        total_distance += distance_matrix[from_node][to_node]
+    for _ in range(n - 1):
+        nearest_dist = float('inf')
+        nearest_node = -1
+        
+        for j in range(n):
+            if not visited[j] and distance_matrix[current][j] < nearest_dist:
+                nearest_dist = distance_matrix[current][j]
+                nearest_node = j
+        
+        if nearest_node == -1:
+            break
+        
+        route.append(nearest_node)
+        visited[nearest_node] = True
+        current = nearest_node
     
-    stats = {
-        "total_distance": total_distance,
-        "solving_time": solving_time,
-        "num_nodes": n,
-    }
-    
-    return order, stats
+    return route
