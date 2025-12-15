@@ -835,6 +835,24 @@ def import_shops_from_sharepoint(
     """
     從 SharePoint List 匯入店舖資料到本地資料庫
     
+    ✅ 正確的欄位映射:
+    - field_6: shop_id
+    - field_7: shop_name  
+    - field_8: address (中文)
+    - field_9: region
+    - field_10: location (地區名稱,如 Aberdeen)
+    - field_11: brand
+    - field_12: brand_code
+    - field_13: division
+    - field_14: english_address
+    - field_16: district (行政區,如 Southern) ← 關鍵修正
+    - field_17: is_mtr
+    - field_20: lat
+    - field_21: lng
+    - field_23: brand_icon_url
+    - field_35: is_active
+    - field_37: phone
+    
     Args:
         list_url: Microsoft Graph List URL
         token: Access Token
@@ -901,90 +919,62 @@ def import_shops_from_sharepoint(
                     if not overwrite:
                         cur.execute("SELECT 1 FROM shop_master WHERE shop_id = ?", (shop_id,))
                         if cur.fetchone():
-                            print(f"⏭️ 跳過 {shop_id}（已存在）")
                             skipped_count += 1
                             continue
                     
-                    # 準備資料（對應您的 SharePoint 欄位）
+                    # ✅ 準備資料（修正欄位映射）
                     shop_data = {
-                        "shop_id": shop_id,
-                        "shop_name": fields.get("field_7", ""),  # Shop Name
-                        "address": fields.get("field_8", ""),  # Address
-                        "region": fields.get("field_9", ""),  # Region
-                        "district": fields.get("field_10", ""),  # District
-                        "brand": fields.get("field_11", ""),  # Brand
-                        "brand_code": fields.get("field_12", ""),  # Brand Code
-                        "division": fields.get("field_13", ""),  # Division
-                        "english_address": fields.get("field_14", ""),  # English Address
-                        "location": fields.get("field_15", ""),  # Location
-                        "lat": fields.get("field_20", 0.0),  # Latitude
-                        "lng": fields.get("field_21", 0.0),  # Longitude
-                        "brand_icon_url": fields.get("field_22",    ""),  # Brand Icon
-                        "is_mtr": fields.get("field_17", "N"),  # Is MTR
-                        "phone": fields.get("field_37", ""),  # Phone
-                        "is_active": "Y" if fields.get("field_35") == "Y" else "N",  # Active flag
+                        "shop_id": str(shop_id).strip(),
+                        "shop_name": fields.get("field_7", ""),
+                        "address": fields.get("field_8", ""),
+                        "region": fields.get("field_9", ""),
+                        "district": fields.get("field_16", ""),  # ✅ 修正：field_16 才是 district
+                        "location": fields.get("field_10", ""),  # ✅ field_10 是 location
+                        "brand": fields.get("field_11", ""),
+                        "brand_code": fields.get("field_12", ""),
+                        "division": fields.get("field_13", ""),
+                        "english_address": fields.get("field_14", ""),
+                        "lat": float(fields.get("field_20", 0.0) or 0.0),
+                        "lng": float(fields.get("field_21", 0.0) or 0.0),
+                        "brand_icon_url": fields.get("field_23", ""),
+                        "is_mtr": "Y" if fields.get("field_17") == "Y" else "N",
+                        "phone": fields.get("field_37", ""),
+                        "is_active": "Y" if fields.get("field_35") == "Y" else "N",
                     }
                     
                     # 寫入或更新資料庫
-                    if overwrite:
-                        # UPSERT 操作
-                        cur.execute("""
-                            INSERT OR REPLACE INTO shop_master (
-                                shop_id, shop_name, address, region, district,
-                                brand, brand_code, division, english_address, location,
-                                lat, lng, brand_icon_url, is_mtr, phone, is_active
-                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                        """, (
-                            shop_data["shop_id"],
-                            shop_data["shop_name"],
-                            shop_data["address"],
-                            shop_data["region"],
-                            shop_data["district"],
-                            shop_data["brand"],
-                            shop_data["brand_code"],
-                            shop_data["division"],
-                            shop_data["english_address"],
-                            shop_data["location"],
-                            shop_data["lat"],
-                            shop_data["lng"],
-                            shop_data["brand_icon_url"],
-                            shop_data["is_mtr"],
-                            shop_data["phone"],
-                            shop_data["is_active"]
-                        ))
-                    else:
-                        # 只插入新記錄
-                        cur.execute("""
-                            INSERT INTO shop_master (
-                                shop_id, shop_name, address, region, district,
-                                brand, brand_code, division, english_address, location,
-                                lat, lng, brand_icon_url, is_mtr, phone, is_active
-                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                        """, (
-                            shop_data["shop_id"],
-                            shop_data["shop_name"],
-                            shop_data["address"],
-                            shop_data["region"],
-                            shop_data["district"],
-                            shop_data["brand"],
-                            shop_data["brand_code"],
-                            shop_data["division"],
-                            shop_data["english_address"],
-                            shop_data["location"],
-                            shop_data["lat"],
-                            shop_data["lng"],
-                            shop_data["brand_icon_url"],
-                            shop_data["is_mtr"],
-                            shop_data["phone"],
-                            shop_data["is_active"]
-                        ))
+                    cur.execute("""
+                        INSERT OR REPLACE INTO shop_master (
+                            shop_id, shop_name, address, region, district,
+                            brand, brand_code, division, english_address, location,
+                            lat, lng, brand_icon_url, is_mtr, phone, is_active
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """, (
+                        shop_data["shop_id"],
+                        shop_data["shop_name"],
+                        shop_data["address"],
+                        shop_data["region"],
+                        shop_data["district"],
+                        shop_data["brand"],
+                        shop_data["brand_code"],
+                        shop_data["division"],
+                        shop_data["english_address"],
+                        shop_data["location"],
+                        shop_data["lat"],
+                        shop_data["lng"],
+                        shop_data["brand_icon_url"],
+                        shop_data["is_mtr"],
+                        shop_data["phone"],
+                        shop_data["is_active"]
+                    ))
                     
                     success_count += 1
-                    print(f"✅ 成功匯入: {shop_id}")
                     
                 except Exception as e:
                     failed_count += 1
                     print(f"❌ 匯入失敗 {shop_id}: {e}")
+                    import traceback
+                    traceback.print_exc()
             
             conn.commit()
         
@@ -1004,6 +994,16 @@ def import_shops_from_sharepoint(
         import traceback
         traceback.print_exc()
         raise
+
+
+def delete_all_schedules():
+    """Delete all schedule records (for regeneration)"""
+    with get_db_connection() as conn:
+        cur = conn.cursor()
+        cur.execute("DELETE FROM schedule;")
+        conn.commit()
+        print("✅ All schedules deleted")
+
 
 
 def get_schedule_by_date(schedule_date: str) -> list[dict]:
