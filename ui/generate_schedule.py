@@ -54,13 +54,28 @@ def render():
             """)
             regions = [row[0] for row in cur.fetchall()]
         
-        selected_regions = st.multiselect(
+        # Map region codes to full names for display
+        region_map = {
+            "HK": "Hong Kong Island",
+            "KN": "Kowloon",
+            "NT": "New Territories",
+            "IS": "Islands",
+            "MO": "Macau"
+        }
+        
+        region_display = [region_map.get(r, r) for r in regions]
+        
+        selected_regions_display = st.multiselect(
             "Regions",
-            options=regions,
+            options=region_display,
             default=None,
             placeholder="All regions",
             help="留空則包含所有地區"
         )
+        
+        # Convert back to codes
+        reverse_map = {v: k for k, v in region_map.items()}
+        selected_regions = [reverse_map.get(r, r) for r in selected_regions_display]
     
     with col_filter2:
         # Get unique districts (filtered by selected regions)
@@ -95,8 +110,37 @@ def render():
             help="留空則包含所有區域"
         )
     
-    # ========== Brand Filter (Optional) ==========
-    with st.expander("🏢 Brand Filter (Optional)"):
+    # ========== Advanced Options ==========
+    with st.expander("⚙️ Advanced Options"):
+        col_adv1, col_adv2 = st.columns(2)
+        
+        with col_adv1:
+            include_mtr = st.selectbox(
+                "Include MTR Shops",
+                options=["Yes", "No"],
+                index=0
+            )
+            
+            use_clustering = st.checkbox(
+                "Use Proximity Clustering",
+                value=True,
+                help="自動將鄰近的店舖分組"
+            )
+        
+        with col_adv2:
+            cross_region = st.selectbox(
+                "Cross Region Assignment",
+                options=["Allow", "Limit to same region"],
+                index=0
+            )
+            
+            include_distance = st.checkbox(
+                "Calculate Distances (slower)",
+                value=False,
+                help="使用 AMap API 計算實際距離"
+            )
+        
+        # Brand filter
         with data_access.get_db_connection() as conn:
             cur = conn.cursor()
             cur.execute("""
@@ -108,7 +152,7 @@ def render():
             brands = [row[0] for row in cur.fetchall()]
         
         selected_brand = st.selectbox(
-            "Select Brand",
+            "Brand Filter",
             options=["All"] + brands,
             index=0
         )
@@ -123,67 +167,69 @@ def render():
             
             with st.spinner("Generating schedule..."):
                 try:
-                    # Build filters
-                    filters = {}
+                    # Prepare regions parameter (full names for scheduler_engine)
+                    regions_param = selected_regions_display if selected_regions_display else None
                     
-                    if selected_regions:
-                        filters['regions'] = selected_regions
+                    # Prepare districts parameter
+                    districts_param = selected_districts if selected_districts else None
                     
-                    if selected_districts:
-                        filters['districts'] = selected_districts
+                    # Save groups_per_day setting
+                    data_access.set_setting("groups_per_day", str(groups_per_day))
                     
-                    if selected_brand and selected_brand != "All":
-                        filters['brand'] = selected_brand
-                    
-                    # Clear existing schedules first
-                    with data_access.get_db_connection() as conn:
-                        cur = conn.cursor()
-                        cur.execute("DELETE FROM schedule;")
-                        conn.commit()
-                    
-                    st.info("✓ Cleared existing schedules")
-                    
-                    # Generate schedule
-                    # 自動計算結束日期 (開始日期 + 60天)
-                    end_date = start_date + timedelta(days=60)
-                    
-                    schedule_result = scheduler_engine.generate_schedule(
-                        start_date=start_date.isoformat(),
-                        end_date=end_date.isoformat(),
+                    # ✅ Call generate_schedule with correct parameters
+                    result = scheduler_engine.generate_schedule(
                         shops_per_day=shops_per_day,
-                        groups_per_day=groups_per_day,
-                        filters=filters
+                        start_date=start_date,  # date 物件,不需要 isoformat()
+                        regions=regions_param,  # 必須是完整名稱,如 "Hong Kong Island"
+                        districts=districts_param,
+                        include_mtr=include_mtr,
+                        cross_region=cross_region,
+                        include_distance=include_distance,
+                        use_clustering=use_clustering
                     )
+
                     
-                    # Save to database
-                    if schedule_result and len(schedule_result) > 0:
-                        success = data_access.save_schedule_batch(schedule_result)
+                    # Display results
+                    if result.total_shops > 0:
+                        st.success(f"✅ Generated schedule for {result.total_shops} shops!")
                         
-                        if success:
-                            st.success(f"✅ Generated {len(schedule_result)} schedule records!")
-                            
-                            # Show summary
-                            col_sum1, col_sum2, col_sum3 = st.columns(3)
-                            
-                            with col_sum1:
-                                st.metric("Total Shops", len(schedule_result))
-                            
-                            with col_sum2:
-                                unique_dates = len(set([s['schedule_date'] for s in schedule_result]))
-                                st.metric("Days", unique_dates)
-                            
-                            with col_sum3:
-                                st.metric("Groups/Day", groups_per_day)
-                            
-                            st.info("💡 Go to 'Today Schedule' to view the schedule")
-                            
-                            # Save parameters as default
-                            data_access.set_setting("shops_per_day", str(shops_per_day))
-                            data_access.set_setting("groups_per_day", str(groups_per_day))
-                        else:
-                            st.error("❌ Failed to save schedule to database")
+                        # Show summary
+                        col_sum1, col_sum2, col_sum3, col_sum4 = st.columns(4)
+                        
+                        with col_sum1:
+                            st.metric("Total Shops", result.total_shops)
+                        
+                        with col_sum2:
+                            st.metric("Business Days", result.business_days)
+                        
+                        with col_sum3:
+                            st.metric("Start Date", result.start_date.strftime("%Y-%m-%d"))
+                        
+                        with col_sum4:
+                            st.metric("Finish Date", result.finish_date.strftime("%Y-%m-%d"))
+                        
+                        # Show region breakdown
+                        if result.region_counts:
+                            st.markdown("**Region Breakdown:**")
+                            cols = st.columns(len(result.region_counts))
+                            for idx, (region, count) in enumerate(sorted(result.region_counts.items())):
+                                with cols[idx]:
+                                    region_name = region_map.get(region, region)
+                                    st.metric(region_name, count)
+                        
+                        # Show cluster quality if available
+                        if result.cluster_quality:
+                            st.markdown("**Clustering Quality:**")
+                            col_q1, col_q2 = st.columns(2)
+                            with col_q1:
+                                st.metric("Avg Distance", f"{result.cluster_quality['avg_intra_cluster_distance_km']:.2f} km")
+                            with col_q2:
+                                st.metric("Region Consistency", f"{result.cluster_quality['region_consistency_pct']:.0f}%")
+                        
+                        st.info("💡 Go to 'Today Schedule' or 'View Schedule' to see the details")
+                        
                     else:
-                        st.warning("⚠️ No schedule generated. Check your filters.")
+                        st.warning("⚠️ No shops match the selected filters")
                         
                 except Exception as e:
                     st.error(f"❌ Error: {str(e)}")
