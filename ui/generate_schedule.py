@@ -4,7 +4,7 @@ from core import data_access, scheduler_engine
 
 
 def render():
-    st.subheader("Generate Schedule")
+    st.subheader("🗓️ Generate Schedule")
     
     # Read default capacity from settings
     cap_str = data_access.get_setting("shops_per_day", "20")
@@ -88,6 +88,61 @@ def render():
         options=all_districts,
         help="Select specific districts to filter shops. Leave empty to include all districts.",
     )
+    
+     # ========== Region Filter ==========
+    with st.expander("🗺️ Region & District Filters", expanded=False):
+        # Get unique regions
+        with data_access.get_db_connection() as conn:
+            cur = conn.cursor()
+            
+            # ✅ 修正：改用 region (不是 region_code)
+            cur.execute("SELECT DISTINCT region FROM shop_master WHERE region IS NOT NULL ORDER BY region;")
+            regions = [row[0] for row in cur.fetchall()]
+        
+        selected_regions = st.multiselect(
+            "Select Regions",
+            options=regions,
+            default=None,
+            help="Leave empty to include all regions"
+        )
+        
+        # Get unique districts
+        with data_access.get_db_connection() as conn:
+            cur = conn.cursor()
+            
+            # ✅ 修正：改用 district (不是 district_en)
+            if selected_regions:
+                placeholders = ','.join('?' * len(selected_regions))
+                cur.execute(
+                    f"SELECT DISTINCT district FROM shop_master WHERE region IN ({placeholders}) AND district IS NOT NULL ORDER BY district;",
+                    selected_regions
+                )
+            else:
+                cur.execute("SELECT DISTINCT district FROM shop_master WHERE district IS NOT NULL ORDER BY district;")
+            
+            districts = [row[0] for row in cur.fetchall()]
+        
+        selected_districts = st.multiselect(
+            "Select Districts",
+            options=districts,
+            default=None,
+            help="Leave empty to include all districts"
+        )
+    
+    # ========== Brand Filter ==========
+    with st.expander("🏢 Brand Filter", expanded=False):
+        with data_access.get_db_connection() as conn:
+            cur = conn.cursor()
+            cur.execute("SELECT DISTINCT brand FROM shop_master WHERE brand IS NOT NULL ORDER BY brand;")
+            brands = [row[0] for row in cur.fetchall()]
+        
+        selected_brand = st.selectbox(
+            "Select Brand",
+            options=["All"] + brands,
+            index=0,
+            help="Filter by specific brand"
+        )
+    
     
     st.markdown("---")
     st.markdown("### Algorithm Options")
