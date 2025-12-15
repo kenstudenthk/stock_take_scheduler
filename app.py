@@ -85,9 +85,182 @@ def main():
     """Main application entry point."""
     
     # --- 🛠️ Debug Sidebar ---
-    with st.sidebar:
-         st.title("🔧 Debug Tools")
-         st.caption("Admin use only")
+    # 在 app.py 的 Debug Sidebar 中加入
+
+with st.sidebar:
+    st.title("🔧 Debug Tools")
+    st.caption("Admin use only")
+    
+    # ========== 終極修復 ==========
+    if st.button("💥 終極修復 (直接重建)", type="primary", use_container_width=True):
+        st.warning("⚠️ 此操作會直接刪除並重建所有表格!")
+        
+        if st.checkbox("確認執行終極修復"):
+            try:
+                import os
+                
+                # === 步驟 1: 備份 SharePoint 設定 ===
+                st.info("1️⃣ 備份設定...")
+                backup = {}
+                
+                try:
+                    with data_access.get_db_connection() as conn:
+                        cur = conn.cursor()
+                        cur.execute("SELECT key, value FROM settings;")
+                        backup = {row[0]: row[1] for row in cur.fetchall()}
+                    st.success(f"✓ 已備份 {len(backup)} 個設定")
+                except:
+                    st.warning("⚠️ 無法備份設定")
+                
+                # === 步驟 2: 完全刪除資料庫檔案 ===
+                st.info("2️⃣ 刪除資料庫檔案...")
+                
+                db_path = data_access.DB_PATH
+                
+                if db_path.exists():
+                    os.remove(db_path)
+                    st.success(f"✓ 已刪除: {db_path}")
+                else:
+                    st.info("ℹ️ 資料庫不存在")
+                
+                # === 步驟 3: 強制建立新 schema ===
+                st.info("3️⃣ 建立新表格...")
+                
+                # 直接執行 SQL 建立表格
+                with data_access.get_db_connection() as conn:
+                    cur = conn.cursor()
+                    
+                    # Shop Master Table
+                    cur.execute("""
+                        CREATE TABLE shop_master (
+                            shop_id TEXT PRIMARY KEY,
+                            shop_name TEXT,
+                            address TEXT,
+                            region TEXT,
+                            district TEXT,
+                            brand TEXT,
+                            brand_code TEXT,
+                            division TEXT,
+                            english_address TEXT,
+                            location TEXT,
+                            lat REAL,
+                            lng REAL,
+                            brand_icon_url TEXT,
+                            is_mtr TEXT DEFAULT 'N',
+                            phone TEXT,
+                            is_active TEXT DEFAULT 'Y'
+                        );
+                    """)
+                    
+                    # Schedule Table
+                    cur.execute("""
+                        CREATE TABLE schedule (
+                            id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            shop_id TEXT NOT NULL,
+                            shop_name TEXT,
+                            address TEXT,
+                            region TEXT,
+                            district TEXT,
+                            brand TEXT,
+                            lat REAL,
+                            lng REAL,
+                            is_mtr TEXT DEFAULT 'N',
+                            schedule_date TEXT NOT NULL,
+                            group_number INTEGER,
+                            status TEXT DEFAULT 'Planned',
+                            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                            FOREIGN KEY (shop_id) REFERENCES shop_master(shop_id)
+                        );
+                    """)
+                    
+                    # Settings Table
+                    cur.execute("""
+                        CREATE TABLE settings (
+                            key TEXT PRIMARY KEY,
+                            value TEXT
+                        );
+                    """)
+                    
+                    # Holidays Table
+                    cur.execute("""
+                        CREATE TABLE holidays (
+                            date TEXT PRIMARY KEY,
+                            name_chi TEXT,
+                            type TEXT
+                        );
+                    """)
+                    
+                    conn.commit()
+                
+                st.success("✓ 新表格已建立")
+                
+                # === 步驟 4: 驗證 schema ===
+                st.info("4️⃣ 驗證 schema...")
+                
+                with data_access.get_db_connection() as conn:
+                    cur = conn.cursor()
+                    cur.execute("PRAGMA table_info(shop_master);")
+                    columns = [col[1] for col in cur.fetchall()]
+                
+                st.write("**shop_master 欄位:**")
+                st.code(", ".join(columns))
+                
+                required = ["region", "district", "address", "lat", "lng"]
+                missing = [c for c in required if c not in columns]
+                
+                if missing:
+                    st.error(f"❌ 缺少欄位: {', '.join(missing)}")
+                    st.stop()
+                else:
+                    st.success("✅ Schema 驗證通過!")
+                
+                # === 步驟 5: 恢復設定 ===
+                st.info("5️⃣ 恢復設定...")
+                
+                for key, value in backup.items():
+                    data_access.set_setting(key, value)
+                
+                if backup:
+                    st.success(f"✓ 已恢復 {len(backup)} 個設定")
+                
+                # === 步驟 6: 匯入資料 ===
+                st.info("6️⃣ 匯入店舖資料...")
+                
+                sp_url = backup.get("SHAREPOINT_LIST_URL")
+                sp_token = backup.get("SHAREPOINT_ACCESS_TOKEN")
+                
+                if sp_url and sp_token:
+                    result = data_access.import_shops_from_sharepoint(
+                        list_url=sp_url,
+                        token=sp_token,
+                        overwrite=False
+                    )
+                    st.success(f"✓ 成功: {result['success']}, 失敗: {result['failed']}, 跳過: {result['skipped']}")
+                else:
+                    st.warning("⚠️ 無 SharePoint 設定,請前往 Settings 手動匯入")
+                
+                # === 步驟 7: 初始化假期 ===
+                st.info("7️⃣ 初始化假期...")
+                holidays.init_default_holidays()
+                st.success("✓ 假期已初始化")
+                
+                # === 步驟 8: 設定標誌 ===
+                data_access.set_setting("app_initialized", "true")
+                data_access.set_setting("app_version", "1.0.0")
+                
+                # === 完成 ===
+                st.balloons()
+                st.success("🎉 終極修復完成!")
+                st.info("請點擊下方按鈕重新整理")
+                
+                if st.button("🔄 重新整理頁面"):
+                    st.rerun()
+                
+            except Exception as e:
+                st.error(f"❌ 修復失敗: {e}")
+                import traceback
+                st.code(traceback.format_exc())
+
     
     # 在 app.py 的強制重建按鈕中修改
 
