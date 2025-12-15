@@ -80,24 +80,19 @@ def generate_schedule(
     
     # ========== Phase 1: Get and filter shops ==========
     shops = data_access.get_all_shops(active_only=True)
-    
+
     if regions:
-        region_map = {
-            "Hong Kong Island": "HK",
-            "Kowloon": "KN",
-            "New Territories": "NT",
-            "Islands": "IS",
-            "Macau": "MO",
-        }
-        region_codes = {region_map[r] for r in regions if r in region_map}
-        shops = [s for s in shops if s["region_code"] in region_codes]
-    
+        # ✅ regions 參數現在接收代碼 (如 ["NT"])
+        shops = [s for s in shops if s["region"] in regions]
+
     if districts:
-        shops = [s for s in shops if s["district_en"] in districts]
-    
+        # ✅ 使用正確的欄位名稱
+        shops = [s for s in shops if s["district"] in districts]
+
     if include_mtr == "No":
-        shops = [s for s in shops if s["is_mtr"] == 0]
-    
+        shops = [s for s in shops if s["is_mtr"] != "Y"]
+
+
     total_shops = len(shops)
     
     if total_shops == 0:
@@ -150,11 +145,13 @@ def generate_schedule(
         
     else:
         # ========== Fallback: Simple sorting ==========
+    
         print("📋 Using simple sorting (no clustering)...")
         shops_sorted = sorted(
             shops,
-            key=lambda s: (s["region_code"], s["district_en"] or "", s["shop_id"]),
+            key=lambda s: (s["region"], s.get("district", ""), s["shop_id"]),  # ✅ 修正欄位名稱
         )
+
         
         if isinstance(start_date, datetime.date):
             d = start_date
@@ -250,11 +247,13 @@ def generate_schedule(
             )
     
     # ========== Calculate statistics ==========
+   
     region_counts = {"HK": 0, "KN": 0, "NT": 0, "IS": 0, "MO": 0}
     for s in shops:
-        code = s["region_code"]
+        code = s["region"]  # ✅ 改為 s["region"]
         if code in region_counts:
             region_counts[code] += 1
+
     
     result = ScheduleResult(
         total_shops=total_shops,
