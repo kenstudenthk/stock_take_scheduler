@@ -79,36 +79,44 @@ def render():
     
     with col_filter2:
         # Get unique districts (filtered by selected regions)
-        with data_access.get_db_connection() as conn:
-            cur = conn.cursor()
-            
-            if selected_regions:
-                placeholders = ','.join('?' * len(selected_regions))
-                cur.execute(f"""
-                    SELECT DISTINCT district 
-                    FROM shop_master 
-                    WHERE region IN ({placeholders}) 
-                    AND district IS NOT NULL 
-                    AND is_active = 'Y'
-                    ORDER BY district
-                """, selected_regions)
-            else:
-                cur.execute("""
-                    SELECT DISTINCT district 
-                    FROM shop_master 
-                    WHERE district IS NOT NULL AND is_active = 'Y'
-                    ORDER BY district
-                """)
-            
-            districts = [row[0] for row in cur.fetchall()]
+        districts = []
         
-        selected_districts = st.multiselect(
+        try:
+            with data_access.get_db_connection() as conn:
+                cur = conn.cursor()
+                
+                if selected_regions:
+                    placeholders = ','.join('?' * len(selected_regions))
+                    cur.execute(f"""
+                        SELECT DISTINCT district 
+                        FROM shop_master 
+                        WHERE region IN ({placeholders}) 
+                        AND district IS NOT NULL 
+                        AND is_active = 'Y'
+                        ORDER BY district
+                    """, selected_regions)
+                else:
+                    cur.execute("""
+                        SELECT DISTINCT district 
+                        FROM shop_master 
+                        WHERE district IS NOT NULL AND is_active = 'Y'
+                        ORDER BY district
+                    """)
+                
+                districts = [row[0] for row in cur.fetchall()]
+                
+        except Exception as e:
+            st.error(f"❌ 無法讀取 Districts: {e}")
+            districts = []
+        
+        selected_districts = st.multiselect(    
             "Districts",
             options=districts,
             default=None,
-            placeholder="All districts",
+            placeholder="All districts" if districts else "No districts available",
             help="留空則包含所有區域"
         )
+
     
     # ========== Advanced Options ==========
     with st.expander("⚙️ Advanced Options"):
