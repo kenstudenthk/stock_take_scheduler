@@ -1,5 +1,3 @@
-# core/holidays.py
-
 import datetime
 import pandas as pd
 from core.data_access import get_conn, get_db_connection
