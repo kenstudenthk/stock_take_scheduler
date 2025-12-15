@@ -281,6 +281,48 @@ def main():
             else:
                 st.error("❌ 資料庫不存在")
 
+        st.markdown("---")
+        st.subheader("🧪 篩選測試")
+
+        test_region = st.selectbox("測試 Region", ["", "HK", "KN", "NT", "New Territories"])
+        test_district = st.selectbox("測試 District", ["", "葵青", "Kwai Tsing", "葵涌"])
+
+        if st.button("🔍 測試查詢"):
+            with data_access.get_db_connection() as conn:
+                cur = conn.cursor()
+                
+                if test_region and test_district:
+                    cur.execute("""
+                        SELECT COUNT(*), region, district 
+                        FROM shop_master 
+                        WHERE region = ? AND district = ?
+                        GROUP BY region, district;
+                    """, (test_region, test_district))
+                elif test_region:
+                    cur.execute("""
+                        SELECT COUNT(*), region, district 
+                        FROM shop_master 
+                        WHERE region = ?
+                        GROUP BY region, district;
+                    """, (test_region,))
+                elif test_district:
+                    cur.execute("""
+                        SELECT COUNT(*), region, district 
+                        FROM shop_master 
+                        WHERE district = ?
+                        GROUP BY region, district;
+                    """, (test_district,))
+                else:
+                    cur.execute("SELECT COUNT(*) FROM shop_master;")
+                
+                results = cur.fetchall()
+                
+                if results:
+                    st.success(f"✅ 找到 {len(results)} 筆結果")
+                    for r in results:
+                        st.write(r)
+                else:
+                    st.error("❌ 沒有符合的資料")
 
         
         # === 一鍵修復按鈕 ===
