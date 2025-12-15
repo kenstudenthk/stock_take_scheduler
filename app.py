@@ -120,9 +120,67 @@ def main():
             else:
                 st.error("❌ 資料庫不存在")
         
-        # === 終極修復按鈕 ===
+        # 在 app.py 側邊欄中,在診斷區塊後加入
+
         st.markdown("---")
-        st.subheader("⚡ 終極修復")
+        st.subheader("🔥 快速修復")
+
+        if st.button("⚡ 一鍵修復 Schema", type="primary", use_container_width=True):
+            with st.spinner("執行中..."):
+                try:
+                    import os
+                    
+                    # 1. 獲取備份
+                    backup = {}
+                    try:
+                        with data_access.get_db_connection() as conn:
+                            cur = conn.cursor()
+                            cur.execute("SELECT key, value FROM settings;")
+                            backup = {row[0]: row[1] for row in cur.fetchall()}
+                    except:
+                        pass
+                    
+                    sp_url = backup.get("SHAREPOINT_LIST_URL")
+                    sp_token = backup.get("SHAREPOINT_ACCESS_TOKEN")
+                    
+                    # 2. 刪除資料庫
+                    db_path = data_access.DB_PATH
+                    if db_path.exists():
+                        os.remove(db_path)
+                    
+                    # 3. 重新初始化
+                    data_access.init_db()
+                    
+                    # 4. 恢復設定
+                    for key, value in backup.items():
+                        data_access.set_setting(key, value)
+                    
+                    # 5. 匯入資料
+                    if sp_url and sp_token:
+                        result = data_access.import_shops_from_sharepoint(
+                            list_url=sp_url,
+                            token=sp_token,
+                            overwrite=False
+                        )
+                        st.success(f"✅ 匯入 {result['success']} 間店舖")
+                    else:
+                        st.warning("⚠️ 請到 Settings 設定 SharePoint")
+                    
+                    # 6. 初始化假期
+                    holidays.init_default_holidays()
+                    
+                    # 7. 完成
+                    st.success("✅ 修復完成!")
+                    st.balloons()
+                    
+                    # 強制重新整理
+                    st.rerun()
+                    
+                except Exception as e:
+                    st.error(f"❌ 修復失敗: {e}")
+                    import traceback
+                    st.code(traceback.format_exc())
+
         
         # ✅ 所有邏輯都在這個 if 區塊內
         if st.button("💥 執行完整重建", type="primary", use_container_width=True):
