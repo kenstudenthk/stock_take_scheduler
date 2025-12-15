@@ -141,4 +141,65 @@ def main():
                         st.error(f"❌ Missing columns: {missing}")
                         
                     # 顯示資料筆數
-                    with data_access.get_db_connection
+                    with data_access.get_db_connection() as conn:
+                        cur = conn.cursor()
+                        cur.execute("SELECT COUNT(*) FROM shop_master;")
+                        count = cur.fetchone()[0]
+                        st.metric("Total Shops", count)
+            else:
+                st.warning("⚠️ DB file not found yet.")
+                
+        except Exception as e:
+            st.error(f"Schema check failed: {e}")
+    
+    # --- Main App Flow ---
+    
+    # 1. Run initialization check
+    initialize_app()
+    
+    # 2. Display header
+    st.title("📦 Stock Take Scheduler")
+    st.caption("Hong Kong Store Stock Take Planning Tool")
+    
+    # 3. Create tabs
+    tab1, tab2, tab3, tab4, tab5 = st.tabs(TAB_TITLES)
+    
+    # 4. Render each tab
+    with tab1:
+        today_schedule.render()
+    
+    with tab2:
+        generate_schedule.render()
+    
+    with tab3:
+        all_shops.render()
+    
+    with tab4:
+        view_schedule.render()
+    
+    with tab5:
+        settings.render()
+    
+    # 5. Footer
+    st.markdown("---")
+    col1, col2, col3 = st.columns([2, 1, 1])
+    
+    with col1:
+        try:
+            total = data_access.count_active_shops()
+            st.caption(f"📊 Total active shops: {total}")
+        except:
+            st.caption("📊 Total active shops: (Loading...)")
+    
+    with col2:
+        ver = data_access.get_setting("app_version", "1.0.0")
+        st.caption(f"Version: {ver}")
+    
+    with col3:
+        if st.button("🔄 Soft Reset"):
+            data_access.set_setting("app_initialized", "false")
+            st.rerun()
+
+
+if __name__ == "__main__":
+    main()
