@@ -215,11 +215,11 @@ def get_shop_by_id(shop_id: str) -> dict | None:
 
 
 def get_all_shops(active_only: bool = True) -> list[dict]:
-    """取得全部店舖；active_only=True 時只回傳 is_active=1 的"""
+    """取得全部店舖；active_only=True 時只回傳 is_active='Y' 的"""
     with get_db_connection() as conn:
         cur = conn.cursor()
         if active_only:
-            cur.execute("SELECT * FROM shop_master WHERE is_active = 1;")
+            cur.execute("SELECT * FROM shop_master WHERE is_active = 'Y';")  # ✅ 改為 'Y'
         else:
             cur.execute("SELECT * FROM shop_master;")
         return [dict(r) for r in cur.fetchall()]

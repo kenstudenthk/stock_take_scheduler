@@ -282,38 +282,37 @@ def main():
                 st.error("❌ 資料庫不存在")
 
         st.markdown("---")
-        if st.button("🧪 測試查詢"):
+        if st.button("🧪 測試 get_all_shops"):
             try:
-                with data_access.get_db_connection() as conn:
-                    cur = conn.cursor()
+                shops = data_access.get_all_shops(active_only=True)
+                st.success(f"✅ 取得 {len(shops)} 間活躍店舖")
+                
+                if shops:
+                    st.write("**第一間店舖資料:**")
+                    first_shop = shops[0]
+                    st.json({
+                        "shop_id": first_shop.get("shop_id"),
+                        "shop_name": first_shop.get("shop_name"),
+                        "region": first_shop.get("region"),
+                        "district": first_shop.get("district"),
+                        "is_active": first_shop.get("is_active"),
+                        "is_mtr": first_shop.get("is_mtr"),
+                    })
                     
-                    # 測試 1: 查詢所有 regions
-                    cur.execute("SELECT DISTINCT region FROM shop_master;")
-                    regions = [r[0] for r in cur.fetchall()]
-                    st.success(f"✅ Regions: {', '.join(regions)}")
+                    # 測試篩選
+                    nt_shops = [s for s in shops if s.get("region") == "NT"]
+                    st.write(f"**NT 地區店舖:** {len(nt_shops)} 間")
                     
-                    # 測試 2: 查詢 NT 的 districts
-                    cur.execute("""
-                        SELECT DISTINCT district 
-                        FROM shop_master 
-                        WHERE region = 'NT' AND is_active = 'Y';
-                    """)
-                    districts = [d[0] for d in cur.fetchall()]
-                    st.success(f"✅ NT Districts: {', '.join(districts)}")
-                    
-                    # 測試 3: 查詢 NT + Kwai Tsing 的店舖數
-                    cur.execute("""
-                        SELECT COUNT(*) 
-                        FROM shop_master 
-                        WHERE region = 'NT' AND district = 'Kwai Tsing' AND is_active = 'Y';
-                    """)
-                    count = cur.fetchone()[0]
-                    st.success(f"✅ NT + Kwai Tsing 店舖數: {count}")
+                    kwai_tsing = [s for s in nt_shops if s.get("district") == "Kwai Tsing"]
+                    st.write(f"**Kwai Tsing 店舖:** {len(kwai_tsing)} 間")
+                else:
+                    st.error("❌ 沒有取得任何店舖!")
                     
             except Exception as e:
                 st.error(f"❌ 測試失敗: {e}")
                 import traceback
                 st.code(traceback.format_exc())
+
 
 
         
