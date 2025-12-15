@@ -1,6 +1,8 @@
 # app.py
+
 import streamlit as st
 import os
+from pathlib import Path
 
 # ========== 1. 最先執行：設定頁面配置 ==========
 st.set_page_config(
@@ -37,7 +39,6 @@ TAB_TITLES = [
 def initialize_app():
     """Initialize database and default data on first run."""
     # 資料庫已經在上面初始化了，這裡只檢查是否需要首次設定
-    
     try:
         init_flag = data_access.get_setting("app_initialized", None)
     except Exception:
@@ -46,12 +47,24 @@ def initialize_app():
     # 如果未初始化，執行首次設定
     if not init_flag:
         with st.spinner("Initializing application for first time..."):
-            # A. Import shops from CSV
+            # A. Import shops from SharePoint (優先) or CSV
             try:
-                data_access.import_shops_from_csv(overwrite=True)
-                st.toast("✓ Imported shop data successfully")
+                # ✅ 優先從 SharePoint 匯入
+                sharepoint_url = data_access.get_setting("SHAREPOINT_LIST_URL")
+                sharepoint_token = data_access.get_setting("SHAREPOINT_ACCESS_TOKEN")
+                
+                if sharepoint_url and sharepoint_token:
+                    st.info("📥 Importing from SharePoint...")
+                    result = data_access.import_shops_from_sharepoint(overwrite=False)
+                    st.toast(f"✓ Imported {result['success']} shops from SharePoint")
+                else:
+                    # 備用：從 CSV 匯入
+                    st.info("📥 Importing from CSV...")
+                    data_access.import_shops_from_csv(overwrite=False)
+                    st.toast("✓ Imported shop data from CSV")
+                    
             except FileNotFoundError:
-                st.warning("⚠️ Shop CSV file not found (data/MxStockTakeMasterList.csv).")
+                st.warning("⚠️ Shop CSV file not found. Please upload data via Settings.")
             except Exception as e:
                 st.error(f"Error importing shops: {str(e)}")
             
@@ -76,102 +89,56 @@ def main():
         st.title("🔧 Debug Tools")
         st.caption("Admin use only")
         
+        # ✅ 修正：使用正確的資料庫路徑
+        db_path = data_access.DB_PATH
+        
         # Reset database button
         if st.button("🚨 重置資料庫 (Fix Schema)", help="刪除並重建資料庫表"):
             try:
-                # Try to delete common DB paths
-                db_files = ["data/stock_take.db", "data/db.sqlite"]
                 deleted = False
-                
-                for f in db_files:
-                    if os.path.exists(f):
-                        os.remove(f)
-                        deleted = True
+                if db_path.exists():
+                    os.remove(db_path)
+                    deleted = True
                 
                 # Reinitialize DB
                 data_access.init_db()
                 
+                # ✅ 重置初始化標誌,觸發重新匯入
+                data_access.set_setting("app_initialized", "false")
+                
                 if deleted:
-                    st.success("舊資料庫已刪除並重建！請手動重新整理網頁。")
+                    st.success("✅ 舊資料庫已刪除並重建！點擊下方 Soft Reset 重新匯入資料。")
                 else:
                     st.warning("找不到舊資料庫，已建立新資料庫。")
+                    
             except Exception as e:
                 st.error(f"重置失敗: {e}")
+                import traceback
+                st.code(traceback.format_exc())
         
         # Check DB schema
         try:
-            import sqlite3
-            
-            db_path = "data/db.sqlite"
-            if not os.path.exists(db_path):
-                db_path = "data/stock_take.db"
-            
-            if os.path.exists(db_path):
-                conn = sqlite3.connect(db_path)
-                cursor = conn.cursor()
-                cursor.execute("PRAGMA table_info(shop_master);")
-                columns = [info[1] for info in cursor.fetchall()]
-                conn.close()
+            if db_path.exists():
+                with data_access.get_db_connection() as conn:
+                    cursor = conn.cursor()
+                    cursor.execute("PRAGMA table_info(shop_master);")
+                    columns = [info[1] for info in cursor.fetchall()]
                 
                 with st.expander("🔍 DB Schema Check"):
-                    st.write(f"DB: {db_path}")
-                    st.write(columns)
-                    if "lat" in columns and "lng" in columns:
-                        st.success("✅ lat/lng OK")
+                    st.write(f"**DB Path:** `{db_path}`")
+                    st.write(f"**Exists:** {db_path.exists()}")
+                    st.write(f"**Size:** {os.path.getsize(db_path)} bytes")
+                    st.write("**Columns:**")
+                    st.code(", ".join(columns))
+                    
+                    # ✅ 檢查關鍵欄位
+                    required_cols = ["region", "district", "address", "lat", "lng"]
+                    missing = [c for c in required_cols if c not in columns]
+                    
+                    if not missing:
+                        st.success("✅ All required columns present")
                     else:
-                        st.error("❌ lat/lng MISSING")
-            else:
-                st.warning("⚠️ DB file not found yet.")
-        except Exception:
-            pass  # Ignore debug tool errors
-    
-    # --- Main App Flow ---
-    # 1. Run initialization check
-    initialize_app()
-    
-    # 2. Display header
-    st.title("📦 Stock Take Scheduler")
-    st.caption("Hong Kong Store Stock Take Planning Tool")
-    
-    # 3. Create tabs
-    tab1, tab2, tab3, tab4, tab5 = st.tabs(TAB_TITLES)
-    
-    # 4. Render each tab
-    with tab1:
-        today_schedule.render()
-    
-    with tab2:
-        generate_schedule.render()
-    
-    with tab3:
-        all_shops.render()
-    
-    with tab4:
-        view_schedule.render()
-    
-    with tab5:
-        settings.render()
-    
-    # 5. Footer
-    st.markdown("---")
-    col1, col2, col3 = st.columns([2, 1, 1])
-    
-    with col1:
-        try:
-            total = data_access.count_active_shops()
-            st.caption(f"📊 Total active shops: {total}")
-        except:
-            st.caption("📊 Total active shops: (Loading...)")
-    
-    with col2:
-        ver = data_access.get_setting("app_version", "1.0.0")
-        st.caption(f"Version: {ver}")
-    
-    with col3:
-        if st.button("🔄 Soft Reset"):
-            data_access.set_setting("app_initialized", "false")
-            st.rerun()
-
-
-if __name__ == "__main__":
-    main()
+                        st.error(f"❌ Missing columns: {missing}")
+                        
+                    # 顯示資料筆數
+                    with data_access.get_db_connection
