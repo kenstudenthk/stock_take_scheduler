@@ -86,76 +86,53 @@ def main():
     
     # --- 🛠️ Debug Sidebar ---
     with st.sidebar:
-        st.title("🔧 Debug Tools")
-        st.caption("Admin use only")
-        
-        # ✅ 修正：使用正確的資料庫路徑
-        db_path = data_access.DB_PATH
-        
-        # Reset database button
-        if st.button("🚨 重置資料庫 (Fix Schema)", help="刪除並重建資料庫表"):
-            try:
-                deleted = False
-                if db_path.exists():
-                    os.remove(db_path)
-                    deleted = True
-                
-                # Reinitialize DB
-                data_access.init_db()
-                
-                # ✅ 重置初始化標誌,觸發重新匯入
-                data_access.set_setting("app_initialized", "false")
-                
-                if deleted:
-                    st.success("✅ 舊資料庫已刪除並重建！點擊下方 Soft Reset 重新匯入資料。")
-                else:
-                    st.warning("找不到舊資料庫，已建立新資料庫。")
-                    
-            except Exception as e:
-                st.error(f"重置失敗: {e}")
-                import traceback
-                st.code(traceback.format_exc())
-        
-        # Check DB schema
+         st.title("🔧 Debug Tools")
+         st.caption("Admin use only")
+    
+    # ✅ 新增：強制重建表格按鈕
+    if st.button("⚡ 強制重建表格 (Fix Schema)", type="primary"):
         try:
-            if db_path.exists():
-                with data_access.get_db_connection() as conn:
-                    cursor = conn.cursor()
-                    cursor.execute("PRAGMA table_info(shop_master);")
-                    columns = [info[1] for info in cursor.fetchall()]
+            with data_access.get_db_connection() as conn:
+                cur = conn.cursor()
                 
-                with st.expander("🔍 DB Schema Check"):
-                    st.write(f"**DB Path:** `{db_path}`")
-                    st.write(f"**Exists:** {db_path.exists()}")
-                    st.write(f"**Size:** {os.path.getsize(db_path)} bytes")
-                    st.write("**Columns:**")
-                    st.code(", ".join(columns))
-                    
-                    # ✅ 檢查關鍵欄位
-                    required_cols = ["region", "district", "address", "lat", "lng"]
-                    missing = [c for c in required_cols if c not in columns]
-                    
-                    if not missing:
-                        st.success("✅ All required columns present")
-                    else:
-                        st.error(f"❌ Missing columns: {missing}")
-                        
-                    # 顯示資料筆數
-                    with data_access.get_db_connection() as conn:
-                        cur = conn.cursor()
-                        cur.execute("SELECT COUNT(*) FROM shop_master;")
-                        count = cur.fetchone()[0]
-                        st.metric("Total Shops", count)
-            else:
-                st.warning("⚠️ DB file not found yet.")
+                # 1. 刪除舊表格
+                st.info("🗑️ 刪除舊表格...")
+                cur.execute("DROP TABLE IF EXISTS shop_master;")
+                cur.execute("DROP TABLE IF EXISTS schedule;")
+                cur.execute("DROP TABLE IF EXISTS holidays;")
+                cur.execute("DROP TABLE IF EXISTS settings;")
+                conn.commit()
                 
+                st.success("✅ 舊表格已刪除")
+                
+            # 2. 重新建立正確的 schema
+            st.info("🔨 建立新表格...")
+            data_access.init_db()
+            
+            # 3. 重新匯入資料
+            st.info("📥 從 SharePoint 匯入資料...")
+            result = data_access.import_shops_from_sharepoint(overwrite=False)
+            
+            st.success(f"""
+            ✅ 表格重建完成!
+            - 成功匯入: {result['success']} 筆
+            - 失敗: {result['failed']} 筆
+            - 跳過: {result['skipped']} 筆
+            """)
+            
+            # 4. 初始化假期
+            holidays.init_default_holidays()
+            
+            # 5. 重置初始化標誌
+            data_access.set_setting("app_initialized", "true")
+            
+            st.balloons()
+            st.info("請重新整理頁面以載入新資料")
+            
         except Exception as e:
-            st.error(f"Schema check failed: {e}")
-    
-    # --- Main App Flow ---
-    
-    # 1. Run initialization check
-    initialize_app()
+            st.error(f"❌ 重建失敗: {e}")
+            import traceback
+            st.code(traceback.format_exc())
     
     # 2. Display header
     st.title("📦 Stock Take Scheduler")
