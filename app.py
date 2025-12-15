@@ -85,7 +85,6 @@ def main():
             
             if db_path.exists():
                 st.success(f"✅ DB 存在")
-                st.caption(f"路徑: {db_path}")
                 st.caption(f"大小: {os.path.getsize(db_path)} bytes")
                 
                 try:
@@ -102,24 +101,19 @@ def main():
                             cur.execute("PRAGMA table_info(shop_master);")
                             columns = [col[1] for col in cur.fetchall()]
                             
-                            st.write("**shop_master 欄位:**")
-                            st.code(", ".join(columns[:5]) + "...")
-                            
-                            # 檢查關鍵欄位
                             required = ["region", "district", "address"]
                             missing = [c for c in required if c not in columns]
                             
                             if missing:
                                 st.error(f"❌ 缺少: {', '.join(missing)}")
+                                st.warning("⚠️ 需要執行重建!")
                             else:
                                 st.success("✅ Schema 正確")
-                                
-                                # 顯示資料筆數
                                 cur.execute("SELECT COUNT(*) FROM shop_master;")
                                 count = cur.fetchone()[0]
                                 st.metric("店舖總數", count)
                         else:
-                            st.error("❌ shop_master 表格不存在")
+                            st.error("❌ shop_master 不存在")
                             
                 except Exception as e:
                     st.error(f"診斷失敗: {e}")
@@ -130,31 +124,51 @@ def main():
         st.markdown("---")
         st.subheader("⚡ 終極修復")
         
+        # ✅ 所有邏輯都在這個 if 區塊內
         if st.button("💥 執行完整重建", type="primary", use_container_width=True):
-            if st.checkbox("⚠️ 我了解此操作會刪除所有資料"):
+            # ✅ 確認對話框也在 if 內
+            confirm = st.checkbox("⚠️ 我了解此操作會刪除所有資料")
+            
+            if confirm:  # ✅ 只有確認後才執行
                 try:
                     progress = st.progress(0, text="準備中...")
                     
-                    # 步驟 1: 備份設定
-                    progress.progress(10, text="備份設定...")
+                    # === 步驟 1: 備份設定 ===
+                    progress.progress(10, text="1️⃣ 備份設定...")
                     backup = {}
+                    
                     try:
                         with data_access.get_db_connection() as conn:
                             cur = conn.cursor()
                             cur.execute("SELECT key, value FROM settings;")
                             backup = {row[0]: row[1] for row in cur.fetchall()}
-                        st.success(f"✓ 已備份 {len(backup)} 個設定")
+                        
+                        old_url = backup.get("SHAREPOINT_LIST_URL")
+                        old_token = backup.get("SHAREPOINT_ACCESS_TOKEN")
+                        
+                        st.write(f"✓ 已備份 {len(backup)} 個設定")
+                        if old_url:
+                            st.write(f"  - SharePoint URL: {old_url[:30]}...")
+                        if old_token:
+                            st.write(f"  - Access Token: {'*' * 20}")
                     except:
+                        old_url = None
+                        old_token = None
                         st.warning("⚠️ 無法備份設定")
                     
-                    # 步驟 2: 刪除資料庫
-                    progress.progress(20, text="刪除舊資料庫...")
+                    # === 步驟 2: 刪除資料庫 ===
+                    progress.progress(20, text="2️⃣ 刪除舊資料庫...")
+                    
+                    db_path = data_access.DB_PATH
                     if db_path.exists():
                         os.remove(db_path)
-                        st.success("✓ 已刪除舊資料庫")
+                        st.write("✓ 已刪除舊資料庫")
+                    else:
+                        st.write("ℹ️ 資料庫不存在")
                     
-                    # 步驟 3: 建立新表格
-                    progress.progress(40, text="建立新表格...")
+                    # === 步驟 3: 建立新表格 ===
+                    progress.progress(40, text="3️⃣ 建立新表格...")
+                    
                     with data_access.get_db_connection() as conn:
                         cur = conn.cursor()
                         
@@ -219,51 +233,74 @@ def main():
                         
                         conn.commit()
                     
-                    st.success("✓ 新表格已建立")
+                    st.write("✓ 新表格已建立")
                     
-                    # 步驟 4: 恢復設定
-                    progress.progress(60, text="恢復設定...")
+                    # === 步驟 4: 驗證 Schema ===
+                    progress.progress(50, text="4️⃣ 驗證 Schema...")
+                    
+                    with data_access.get_db_connection() as conn:
+                        cur = conn.cursor()
+                        cur.execute("PRAGMA table_info(shop_master);")
+                        columns = [col[1] for col in cur.fetchall()]
+                    
+                    required = ["region", "district", "address", "lat", "lng"]
+                    missing = [c for c in required if c not in columns]
+                    
+                    if missing:
+                        st.error(f"❌ Schema 驗證失敗: 缺少 {missing}")
+                        st.stop()
+                    
+                    st.write(f"✓ Schema 驗證通過: {', '.join(columns[:8])}...")
+                    
+                    # === 步驟 5: 恢復設定 ===
+                    progress.progress(60, text="5️⃣ 恢復設定...")
+                    
                     for key, value in backup.items():
                         data_access.set_setting(key, value)
-                    st.success(f"✓ 已恢復 {len(backup)} 個設定")
                     
-                    # 步驟 5: 匯入資料
-                    progress.progress(70, text="匯入店舖資料...")
-                    sp_url = backup.get("SHAREPOINT_LIST_URL")
-                    sp_token = backup.get("SHAREPOINT_ACCESS_TOKEN")
+                    st.write(f"✓ 已恢復 {len(backup)} 個設定")
                     
-                    if sp_url and sp_token:
+                    # === 步驟 6: 匯入資料 ===
+                    progress.progress(70, text="6️⃣ 匯入店舖資料...")
+                    
+                    if old_url and old_token:
+                        st.write("📥 從 SharePoint 匯入...")
                         result = data_access.import_shops_from_sharepoint(
-                            list_url=sp_url,
-                            token=sp_token,
+                            list_url=old_url,
+                            token=old_token,
                             overwrite=False
                         )
-                        st.success(f"✓ 成功: {result['success']}, 失敗: {result['failed']}")
+                        st.write(f"✓ 成功: {result['success']}, 失敗: {result['failed']}, 跳過: {result['skipped']}")
                     else:
                         st.warning("⚠️ 請前往 Settings 設定 SharePoint")
                     
-                    # 步驟 6: 初始化假期
-                    progress.progress(90, text="初始化假期...")
-                    holidays.init_default_holidays()
-                    st.success("✓ 假期已初始化")
+                    # === 步驟 7: 初始化假期 ===
+                    progress.progress(85, text="7️⃣ 初始化假期...")
                     
-                    # 完成
-                    progress.progress(100, text="完成!")
+                    holidays.init_default_holidays()
+                    st.write("✓ 假期已初始化")
+                    
+                    # === 步驟 8: 完成 ===
+                    progress.progress(100, text="✅ 完成!")
+                    
                     data_access.set_setting("app_initialized", "true")
+                    data_access.set_setting("app_version", "1.0.0")
                     
                     st.balloons()
                     st.success("🎉 重建完成!")
+                    st.info("請重新整理頁面")
                     
-                    if st.button("🔄 重新整理頁面", type="primary"):
+                    # 重新整理按鈕
+                    if st.button("🔄 重新整理頁面", type="primary", key="reload"):
                         st.rerun()
                     
                 except Exception as e:
                     st.error(f"❌ 重建失敗: {e}")
                     import traceback
-                    with st.expander("錯誤詳情"):
+                    with st.expander("查看錯誤詳情"):
                         st.code(traceback.format_exc())
     
-    # ========== Main Content ==========
+    # ========== 主內容區域 (不在 sidebar 內!) ==========
     
     # 1. 初始化檢查
     initialize_app()
@@ -271,6 +308,9 @@ def main():
     # 2. Header
     st.title("📦 Stock Take Scheduler")
     st.caption("Hong Kong Store Stock Take Planning Tool")
+    
+    # ... 其餘主內容 ...
+
     
     # 3. Tabs
     tab1, tab2, tab3, tab4, tab5 = st.tabs(TAB_TITLES)
