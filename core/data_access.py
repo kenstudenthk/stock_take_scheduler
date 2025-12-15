@@ -129,41 +129,47 @@ def add_group_column_if_missing():
 
 
 def import_shops_from_csv(overwrite: bool = True):
-    """從 MxStockTakeMasterList.csv 匯入 shop_master"""
+    """
+    從 MxStockTakeMasterList.csv 匯入 shop_master
+    ✅ 欄位名稱已統一對應資料庫結構
+    """
     if not CSV_PATH.exists():
         raise FileNotFoundError(f"CSV file not found: {CSV_PATH}")
-
+    
     df = pd.read_csv(CSV_PATH)
-
-    # 欄位映射 + 清洗
+    
+    # ✅ 欄位對應（統一為資料庫欄位名稱）
     df_new = pd.DataFrame({
         "shop_id": df["Shop Code"].astype(str),
         "shop_name": df["ShopName"],
-        "address_zh": df["Address(Chi)"],
-        "address_en": df["Address(Eng)"],
-        "region_code": df["Region"],
-        "area_en": df["Area"],
-        "district_en": df["District"],
-        "is_mtr": (df["MTR(Y/N)"] == "Y").astype(int),
+        "address": df["Address(Chi)"],                    # ✅ 改為 address
+        "english_address": df["Address(Eng)"],            # ✅ 改為 english_address
+        "region": df["Region"],                           # ✅ 改為 region
+        "district": df["District"],                       # ✅ 改為 district
+        "location": df.get("Area", ""),                   # ✅ 改為 location
+        "is_mtr": (df["MTR(Y/N)"] == "Y").apply(lambda x: "Y" if x else "N"),  # ✅ 改為 Y/N
         "brand": df["Brand"],
-        "business_unit": df["Business Unit"],
+        "brand_code": df.get("Business Unit", ""),        # ✅ 改為 brand_code
+        "division": df.get("Business Unit", ""),
         "brand_icon_url": df["Brandicon"],
         "lat": pd.to_numeric(df["Latitude"], errors="coerce"),
         "lng": pd.to_numeric(df["Longitude"], errors="coerce"),
-        "is_active": (df["Available"] == "Y").astype(int),
+        "is_active": (df["Available"] == "Y").apply(lambda x: "Y" if x else "N"),  # ✅ 改為 Y/N
         "phone": df.get("Telephone Number", ""),
-        "contact_name": df.get("Contact name", ""),
     })
-
+    
+    # 過濾空值
     df_new = df_new[df_new["shop_id"].notna() & (df_new["shop_id"] != "")]
-
-    # ✓ 使用 context manager 確保正確關閉
+    
+    # 寫入資料庫
     with get_db_connection() as conn:
         if overwrite:
             df_new.to_sql("shop_master", conn, if_exists="replace", index=False)
         else:
             df_new.to_sql("shop_master", conn, if_exists="append", index=False)
-        print(f"✓ Successfully imported {len(df_new)} shops")
+    
+    print(f"✅ Successfully imported {len(df_new)} shops from CSV")
+
 
 
 # ---------- 查詢工具 ----------
