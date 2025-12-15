@@ -45,79 +45,73 @@ def get_conn():
 # ---------- 初始化 & 匯入 ----------
 
 def init_db():
-    """Initialize database and run all migrations."""
+    """Initialize the database with required tables."""
     with get_db_connection() as conn:
         cur = conn.cursor()
-
-        # 店舖主檔
-        cur.execute(
-            """
+        
+        # ========== 1. Shop Master Table ==========
+        cur.execute("""
             CREATE TABLE IF NOT EXISTS shop_master (
                 shop_id TEXT PRIMARY KEY,
                 shop_name TEXT,
-                address_zh TEXT,
-                address_en TEXT,
-                region_code TEXT,
-                area_en TEXT,
-                district_en TEXT,
-                is_mtr INTEGER,
+                address TEXT,
+                region TEXT,
+                district TEXT,
                 brand TEXT,
-                business_unit TEXT,
-                brand_icon_url TEXT,
+                brand_code TEXT,
+                division TEXT,
+                english_address TEXT,
+                location TEXT,
                 lat REAL,
                 lng REAL,
-                is_active INTEGER,
+                brand_icon_url TEXT,
+                is_mtr TEXT DEFAULT 'N',
                 phone TEXT,
-                contact_name TEXT
+                is_active TEXT DEFAULT 'Y'
             );
-            """
-        )
-
-        # 排程表
-        cur.execute(
-            """
+        """)
+        
+        # ========== 2. Schedule Table ==========
+        cur.execute("""
             CREATE TABLE IF NOT EXISTS schedule (
-                schedule_id INTEGER PRIMARY KEY AUTOINCREMENT,
-                date TEXT,
-                shop_id TEXT,
-                status TEXT,
-                status_reason TEXT,
-                assigned_by TEXT,
-                day_route_order INTEGER,
-                day_total_distance_km REAL,
-                day_total_travel_time_min REAL,
-                created_at TEXT,
-                updated_at TEXT,
-                FOREIGN KEY (shop_id) REFERENCES shop_master (shop_id)
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                shop_id TEXT NOT NULL,
+                shop_name TEXT,
+                address TEXT,
+                region TEXT,
+                district TEXT,
+                brand TEXT,
+                lat REAL,
+                lng REAL,
+                is_mtr TEXT DEFAULT 'N',
+                schedule_date TEXT NOT NULL,
+                group_number INTEGER,
+                status TEXT DEFAULT 'Planned',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (shop_id) REFERENCES shop_master(shop_id)
             );
-            """
-        )
-
-
-
-        # 假期表
-        cur.execute(
-            """
-            CREATE TABLE IF NOT EXISTS holidays (
-                date TEXT PRIMARY KEY,
-                name_zh TEXT,
-                type TEXT
-            );
-            """
-        )
-
-        # Settings 表
-        cur.execute(
-            """
+        """)
+        
+        # ========== 3. Settings Table ==========
+        cur.execute("""
             CREATE TABLE IF NOT EXISTS settings (
                 key TEXT PRIMARY KEY,
                 value TEXT
             );
-            """
-        )
-    
-    # Migration runs after connection is closed
-    add_group_column_if_missing()
+        """)
+        
+        # ========== 4. Holidays Table ==========
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS holidays (
+                date TEXT PRIMARY KEY,
+                name_chi TEXT,
+                type TEXT
+            );
+        """)
+        
+        conn.commit()
+        print("✅ Database initialized successfully")
+
 
 
 def add_group_column_if_missing():
@@ -264,8 +258,8 @@ def search_schedule(
     shop_id: str | None = None,
     region: str | None = None,
     district: str | None = None,
-    status: list[str] | None = None,
 ) -> list[dict]:
+    status: list[str] | None = None,
     """Search schedule with optional filters."""
     with get_db_connection() as conn:
         cur = conn.cursor()
@@ -898,7 +892,7 @@ def import_shops_from_sharepoint(
                         "location": fields.get("field_15", ""),  # Location
                         "lat": fields.get("field_20", 0.0),  # Latitude
                         "lng": fields.get("field_21", 0.0),  # Longitude
-                        "brand_icon_url": fields.get("field_22", ""),  # Brand Icon
+                        "brand_icon_url": fields.get("field_22",    ""),  # Brand Icon
                         "is_mtr": fields.get("field_17", "N"),  # Is MTR
                         "phone": fields.get("field_37", ""),  # Phone
                         "is_active": "Y" if fields.get("field_35") == "Y" else "N",  # Active flag
@@ -1108,3 +1102,60 @@ def count_active_shops() -> int:
     except Exception as e:
         print(f"❌ Error counting active shops: {e}")
         return 0
+
+def save_schedule_batch(schedule_data: list[dict]) -> bool:
+    """
+    Save a batch of schedule records to database.
+    
+    Args:
+        schedule_data: List of dictionaries with schedule info.
+                       Each dict should contain:
+                       - shop_id
+                       - shop_name
+                       - address
+                       - region
+                       - district
+                       - brand
+                       - lat, lng
+                       - is_mtr
+                       - schedule_date
+                       - group_number
+                       - status (optional, defaults to 'Planned')
+        
+    Returns:
+        True if successful, False otherwise
+    """
+    try:
+        with get_db_connection() as conn:
+            cur = conn.cursor()
+            
+            for item in schedule_data:
+                cur.execute("""
+                    INSERT INTO schedule (
+                        shop_id, shop_name, address, region, district,
+                        brand, lat, lng, is_mtr, schedule_date, group_number, status
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    item.get("shop_id"),
+                    item.get("shop_name"),
+                    item.get("address"),
+                    item.get("region"),
+                    item.get("district"),
+                    item.get("brand"),
+                    item.get("lat", 0.0),
+                    item.get("lng", 0.0),
+                    item.get("is_mtr", "N"),
+                    item.get("schedule_date"),
+                    item.get("group_number", 1),
+                    item.get("status", "Planned")
+                ))
+            
+            conn.commit()
+            print(f"✅ Saved {len(schedule_data)} schedule records")
+            return True
+            
+    except Exception as e:
+        print(f"❌ Error saving schedule batch: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
