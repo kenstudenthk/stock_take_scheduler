@@ -983,3 +983,128 @@ def import_shops_from_sharepoint(
         import traceback
         traceback.print_exc()
         raise
+
+
+def get_schedule_by_date(schedule_date: str) -> list[dict]:
+    """
+    Get all scheduled shops for a specific date.
+    
+    Args:
+        schedule_date: Date in ISO format (YYYY-MM-DD)
+        
+    Returns:
+        List of dictionaries containing schedule information
+    """
+    try:
+        with get_db_connection() as conn:
+            cur = conn.cursor()
+            
+            cur.execute("""
+                SELECT 
+                    shop_id,
+                    shop_name,
+                    address,
+                    region,
+                    district,
+                    brand,
+                    lat,
+                    lng,
+                    is_mtr,
+                    schedule_date,
+                    group_number,
+                    status
+                FROM schedule
+                WHERE schedule_date = ?
+                ORDER BY group_number, shop_id
+            """, (schedule_date,))
+            
+            rows = cur.fetchall()
+            
+            # Convert to list of dictionaries
+            result = []
+            for row in rows:
+                result.append({
+                    "shop_id": row[0],
+                    "shop_name": row[1],
+                    "address": row[2],
+                    "region": row[3],
+                    "district": row[4],
+                    "brand": row[5],
+                    "lat": row[6],
+                    "lng": row[7],
+                    "is_mtr": row[8],
+                    "schedule_date": row[9],
+                    "group_number": row[10],
+                    "status": row[11] if row[11] else "Planned"
+                })
+            
+            return result
+            
+    except Exception as e:
+        print(f"❌ Error getting schedule by date: {e}")
+        import traceback
+        traceback.print_exc()
+        return []
+
+
+def update_schedule_status(shop_id: str, schedule_date: str, new_status: str) -> bool:
+    """
+    Update the status of a scheduled shop.
+    
+    Args:
+        shop_id: Shop ID
+        schedule_date: Schedule date (ISO format)
+        new_status: New status (Done, Closed, Rescheduled, Planned)
+        
+    Returns:
+        True if successful, False otherwise
+    """
+    try:
+        with get_db_connection() as conn:
+            cur = conn.cursor()
+            
+            cur.execute("""
+                UPDATE schedule
+                SET status = ?
+                WHERE shop_id = ? AND schedule_date = ?
+            """, (new_status, shop_id, schedule_date))
+            
+            conn.commit()
+            
+            if cur.rowcount > 0:
+                print(f"✅ Updated status for {shop_id} on {schedule_date} to {new_status}")
+                return True
+            else:
+                print(f"⚠️ No schedule found for {shop_id} on {schedule_date}")
+                return False
+                
+    except Exception as e:
+        print(f"❌ Error updating schedule status: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
+
+
+def count_active_shops() -> int:
+    """
+    Count the number of active shops in the database.
+    
+    Returns:
+        Number of active shops
+    """
+    try:
+        with get_db_connection() as conn:
+            cur = conn.cursor()
+            
+            cur.execute("""
+                SELECT COUNT(*)
+                FROM shop_master
+                WHERE is_active = 'Y'
+            """)
+            
+            row = cur.fetchone()
+            return row[0] if row else 0
+            
+    except Exception as e:
+        print(f"❌ Error counting active shops: {e}")
+        return 0
