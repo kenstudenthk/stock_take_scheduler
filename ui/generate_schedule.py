@@ -167,7 +167,7 @@ def render():
             
             with st.spinner("Generating schedule..."):
                 try:
-                    # Prepare regions parameter (full names for scheduler_engine)
+                    # ✅ 修正: 使用代碼而不是完整名稱
                     regions_param = selected_regions if selected_regions else None
                     
                     # Prepare districts parameter
@@ -176,12 +176,12 @@ def render():
                     # Save groups_per_day setting
                     data_access.set_setting("groups_per_day", str(groups_per_day))
                     
-                    # ✅ Call generate_schedule with correct parameters
+                    # Call generate_schedule
                     result = scheduler_engine.generate_schedule(
                         shops_per_day=shops_per_day,
-                        start_date=start_date,  # date 物件,不需要 isoformat()
-                        regions=regions_param,  # 必須是完整名稱,如 "Hong Kong Island"
-                        districts=districts_param,
+                        start_date=start_date,
+                        regions=regions_param,      # ✅ 現在傳 ["NT"] 而不是 ["New Territories"]
+                        districts=districts_param,   # ✅ 傳 ["Kwai Tsing"]
                         include_mtr=include_mtr,
                         cross_region=cross_region,
                         include_distance=include_distance,
