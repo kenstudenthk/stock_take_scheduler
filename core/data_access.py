@@ -259,61 +259,70 @@ def get_schedule_for_date(date_str: str) -> list[dict]:
         return [dict(r) for r in cur.fetchall()]
 
 
-def search_schedule(
+def search_shops(
     date: str | None = None,
     shop_id: str | None = None,
-    region: str | None = None,
-    district: str | None = None,
-) -> list[dict]:
+    regions: list[str] | None = None,
+    districts: list[str] | None = None,
     status: list[str] | None = None,
-    """Search schedule with optional filters."""
+    brand: str | None = None,
+) -> list[dict]:
+    """Search shops from shop_master with optional filters."""
     with get_db_connection() as conn:
         cur = conn.cursor()
-
+        
         base_sql = """
-        SELECT 
-            s.date,
-            s.shop_id,
-            s.status,
-            s.status_reason,
-            sm.shop_name,
-            sm.address_zh,
-            sm.region_code,
-            sm.district_en,
-            sm.brand_icon_url AS brand_icon_url,
-            sm.lat,
-            sm.lng
-        FROM schedule s
-        JOIN shop_master sm ON s.shop_id = sm.shop_id
-        WHERE 1=1
+            SELECT
+                s.schedule_date,
+                sm.shop_id,
+                s.status,
+                sm.shop_name,
+                sm.region,
+                sm.district,
+                sm.address,
+                sm.lat,
+                sm.lng,
+                sm.brand,
+                sm.brand_icon_url
+            FROM shop_master sm
+            LEFT JOIN schedule s ON sm.shop_id = s.shop_id
+            WHERE sm.is_active = 'Y'
         """
-        params = []
-
+        
+        params: list = []
+        
         if date:
-            base_sql += " AND s.date = ?"
+            base_sql += " AND (s.schedule_date = ? OR s.schedule_date IS NULL)"
             params.append(date)
-
+        
         if shop_id:
-            base_sql += " AND s.shop_id = ?"
+            base_sql += " AND sm.shop_id = ?"
             params.append(shop_id)
-
-        if region and region != "All":
-            base_sql += " AND sm.region_code = ?"
-            params.append(region)
-
-        if district:
-            base_sql += " AND sm.district_en LIKE ?"
-            params.append(f"%{district}%")
-
+        
+        if regions and len(regions) > 0:
+            placeholders = ",".join("?" for _ in regions)
+            base_sql += f" AND sm.region IN ({placeholders})"
+            params.extend(regions)
+        
+        if districts and len(districts) > 0:
+            placeholders = ",".join("?" for _ in districts)
+            base_sql += f" AND sm.district IN ({placeholders})"
+            params.extend(districts)
+        
         if status and len(status) > 0:
             placeholders = ",".join("?" for _ in status)
             base_sql += f" AND (s.status IN ({placeholders}) OR s.status IS NULL)"
             params.extend(status)
-
-        base_sql += " ORDER BY s.date, sm.region_code, sm.district_en, s.shop_id"
-
+        
+        if brand:
+            base_sql += " AND sm.brand LIKE ?"
+            params.append(f"%{brand}%")
+        
+        base_sql += " ORDER BY sm.region, sm.district, sm.shop_id"
+        
         cur.execute(base_sql, params)
         return [dict(r) for r in cur.fetchall()]
+
 
 def search_shops(
     date: str | None = None,
