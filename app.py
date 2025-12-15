@@ -224,33 +224,63 @@ def main():
                 st.code(traceback.format_exc())
         
         # === 診斷區塊 ===
-        st.markdown("---")
-        with st.expander("🔍 即時診斷"):
+        with st.expander("🔍 即時診斷", expanded=True):
             db_path = data_access.DB_PATH
+    
+        if db_path.exists():
+            st.success("✅ DB 存在")
             
-            if db_path.exists():
-                st.success("✅ DB 存在")
-                
-                try:
-                    with data_access.get_db_connection() as conn:
-                        cur = conn.cursor()
-                        cur.execute("PRAGMA table_info(shop_master);")
-                        columns = [col[1] for col in cur.fetchall()]
+            try:
+                with data_access.get_db_connection() as conn:
+                    cur = conn.cursor()
+                    
+                    # 檢查 Schema
+                    cur.execute("PRAGMA table_info(shop_master);")
+                    columns = [col[1] for col in cur.fetchall()]
+                    
+                    required = ["region", "district", "address"]
+                    missing = [c for c in required if c not in columns]
+                    
+                    if missing:
+                        st.error(f"❌ 缺少欄位: {', '.join(missing)}")
+                    else:
+                        st.success("✅ Schema 正確")
+                    
+                    # 顯示所有店舖數 (不加篩選)
+                    cur.execute("SELECT COUNT(*) FROM shop_master;")
+                    total = cur.fetchone()[0]
+                    
+                    # 顯示活躍店舖數
+                    cur.execute("SELECT COUNT(*) FROM shop_master WHERE is_active = 'Y';")
+                    active = cur.fetchone()[0]
+                    
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        st.metric("總店舖數", total)
+                    with col2:
+                        st.metric("活躍店舖", active)
+                    
+                    # 如果有資料,顯示範例
+                    if total > 0:
+                        cur.execute("""
+                            SELECT shop_id, shop_name, region, is_active 
+                            FROM shop_master 
+                            LIMIT 3;
+                        """)
+                        samples = cur.fetchall()
                         
-                        required = ["region", "district", "address"]
-                        missing = [c for c in required if c not in columns]
+                        st.write("**範例店舖:**")
+                        for s in samples:
+                            st.caption(f"{s[0]}: {s[1]} ({s[2]}) - Active: {s[3]}")
+                    else:
+                        st.warning("⚠️ 資料庫中沒有店舖資料")
+                        st.info("請使用下方的手動匯入功能")
                         
-                        if missing:
-                            st.error(f"❌ 缺少欄位: {', '.join(missing)}")
-                        else:
-                            st.success("✅ Schema 正確")
-                            cur.execute("SELECT COUNT(*) FROM shop_master;")
-                            count = cur.fetchone()[0]
-                            st.metric("店舖總數", count)
-                except Exception as e:
-                    st.error(f"診斷失敗: {e}")
+            except Exception as e:
+                st.error(f"診斷失敗: {e}")
             else:
                 st.error("❌ 資料庫不存在")
+
 
         
         # === 一鍵修復按鈕 ===
@@ -307,7 +337,64 @@ def main():
                     import traceback
                     with st.expander("錯誤詳情"):
                         st.code(traceback.format_exc())
-    
+        # 在側邊欄的診斷區塊後加入
+
+        st.markdown("---")
+        st.subheader("📥 手動匯入")
+
+        # 顯示當前設定
+        sp_url = data_access.get_setting("SHAREPOINT_LIST_URL", "")
+        sp_token = data_access.get_setting("SHAREPOINT_ACCESS_TOKEN", "")
+
+        if sp_url and sp_token:
+            st.success("✅ SharePoint 設定已儲存")
+            st.caption(f"URL: {sp_url[:40]}...")
+            
+            if st.button("📥 立即從 SharePoint 匯入", use_container_width=True):
+                with st.spinner("匯入中..."):
+                    try:
+                        result = data_access.import_shops_from_sharepoint(
+                            list_url=sp_url,
+                            token=sp_token,
+                            overwrite=False
+                        )
+                        
+                        st.success(f"""
+                        ✅ 匯入完成!
+                        - 成功: {result['success']} 間
+                        - 失敗: {result['failed']} 間
+                        - 跳過: {result['skipped']} 間
+                        """)
+                        
+                        # 顯示匯入的店舖範例
+                        with data_access.get_db_connection() as conn:
+                            cur = conn.cursor()
+                            cur.execute("""
+                                SELECT shop_id, shop_name, region, district 
+                                FROM shop_master 
+                                LIMIT 5;
+                            """)
+                            samples = cur.fetchall()
+                        
+                        if samples:
+                            st.write("**範例店舖:**")
+                            for s in samples:
+                                st.caption(f"- {s[0]}: {s[1]} ({s[2]}, {s[3]})")
+                        
+                        st.balloons()
+                        st.info("請重新整理頁面")
+                        
+                    except Exception as e:
+                        st.error(f"❌ 匯入失敗: {e}")
+                        import traceback
+                        with st.expander("錯誤詳情"):
+                            st.code(traceback.format_exc())
+                    else:
+                        st.warning("⚠️ SharePoint 設定不完整")
+                        st.info("請前往 Settings 頁面設定")
+                
+                        
+        
     # ========== 主內容區域 ==========
     
     # 1. 初始化檢查
