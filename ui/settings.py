@@ -281,6 +281,71 @@ def render():
         data_access.set_setting("PA_SCHEDULE_WRITE_URL", (pa_write_url or "").strip())
         st.success("Schedule write URL 已儲存。")
 
+# 在 SharePoint 設定區塊
+st.markdown("### 📊 SharePoint Integration")
+
+sharepoint_url = st.text_input(
+    "SharePoint List URL (Microsoft Graph)",
+    value=data_access.get_setting("SHAREPOINT_LIST_URL", ""),
+    help=(
+        "Format: https://graph.microsoft.com/v1.0/sites/{site-id}/lists/{list-id}\n\n"
+        "Example: https://graph.microsoft.com/v1.0/sites/f6281a1f-762e-4216-a070-3b1ddb8dbdc7,c741a961-4f9b-4f24-aaef-af319d78cfa6/lists/ce3a752e-7609-4468-81f8-8babaf503ad8"
+    ),
+    key="sp_url_input"
+)
+
+sharepoint_token = st.text_input(
+    "Access Token (from Graph Explorer)",
+    value=data_access.get_setting("SHAREPOINT_ACCESS_TOKEN", ""),
+    type="password",
+    help="Get token from: https://developer.microsoft.com/en-us/graph/graph-explorer",
+    key="sp_token_input"
+)
+
+# ✅ 狀態欄位名稱設定（預設為 ScheduleStatus）
+status_field = st.text_input(
+    "Status Field Internal Name",
+    value=data_access.get_setting("SHAREPOINT_STATUS_FIELD", "ScheduleStatus"),  # ✅ 預設改為 ScheduleStatus
+    help="The internal field name for schedule status (default: ScheduleStatus)",
+    key="sp_status_field_input"
+)
+
+if st.button("💾 Save SharePoint Settings", key="save_sp"):
+    data_access.set_setting("SHAREPOINT_LIST_URL", sharepoint_url)
+    data_access.set_setting("SHAREPOINT_ACCESS_TOKEN", sharepoint_token)
+    data_access.set_setting("SHAREPOINT_STATUS_FIELD", status_field)
+    st.success("✅ SharePoint settings saved!")
+    
+# ✅ 新增：測試連線按鈕
+if st.button("🧪 Test SharePoint Connection", key="test_sp"):
+    if not sharepoint_url or not sharepoint_token:
+        st.error("❌ Please fill in URL and Token first")
+    else:
+        with st.spinner("Testing connection..."):
+            try:
+                import requests
+                # 簡單測試：取得前 1 筆資料
+                test_url = f"{sharepoint_url}/items?$top=1&$select=id&$expand=fields($select=field_6)"
+                headers = {
+                    "Authorization": f"Bearer {sharepoint_token}",
+                    "Accept": "application/json"
+                }
+                response = requests.get(test_url, headers=headers, timeout=10)
+                
+                if response.status_code == 200:
+                    data = response.json()
+                    items = data.get("value", [])
+                    if items:
+                        st.success(f"✅ Connection successful! Found {len(items)} item(s)")
+                        st.json(items[0])
+                    else:
+                        st.warning("⚠️ Connection OK but list is empty")
+                else:
+                    st.error(f"❌ Connection failed: {response.status_code}")
+                    st.code(response.text)
+            except Exception as e:
+                st.error(f"❌ Connection error: {str(e)}")
+
 
 
 

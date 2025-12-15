@@ -376,51 +376,41 @@ def _handle_actions(selected_date: datetime.date):
         st.session_state.pop("action_date", None)
         
 def _sync_to_sharepoint(shop_id: str, new_status: str):
-        """
-        Sync status update to SharePoint List.
+    """Sync status update to SharePoint List."""
+    list_url = data_access.get_setting("SHAREPOINT_LIST_URL")
+    token = data_access.get_setting("SHAREPOINT_ACCESS_TOKEN")
+    status_field = data_access.get_setting("SHAREPOINT_STATUS_FIELD", "ScheduleStatus")
+    
+    if not list_url or not token:
+        st.info("ℹ️ SharePoint sync skipped: Settings not configured.")
+        return
+    
+    try:
+        with st.spinner(f"🔍 Looking up SharePoint Item for {shop_id}..."):
+            item_id = data_access._get_sharepoint_item_id(shop_id, list_url, token)
         
-        Args:
-            shop_id: Shop code (e.g. "S001")
-            new_status: New status value ("Done", "Closed", "Rescheduled")
-        """
-        # ✅ Step 1: Get SharePoint settings
-        list_url = data_access.get_setting("SHAREPOINT_LIST_URL")
-        token = data_access.get_setting("SHAREPOINT_ACCESS_TOKEN")
-        
-        # ✅ Step 2: Check if settings are configured
-        if not list_url or not token:
-            st.info(
-                "ℹ️ SharePoint sync skipped: Please configure SharePoint settings in Settings tab."
-            )
+        if item_id is None:
+            st.warning(f"⚠️ Could not find SharePoint Item for shop {shop_id}")
             return
         
-        # ✅ Step 3: Get SharePoint Item ID
-        try:
-            item_id = data_access._get_sharepoint_item_id(shop_id, list_url, token)
-            
-            if item_id is None:
-                st.warning(
-                    f"⚠️ SharePoint sync failed: Could not find Item ID for shop {shop_id}"
-                )
-                return
-            
-            # ✅ Step 4: Update SharePoint item status
+        with st.spinner(f"📤 Updating SharePoint (Item {item_id})..."):
             success = data_access.update_sharepoint_item_status(
                 item_id=item_id,
                 new_status=new_status,
                 list_url=list_url,
                 token=token,
-                status_field_internal_name="ScheduleStatus"  # ✅ Confirm this field name
+                status_field_internal_name=status_field
             )
+        
+        if success:
+            st.success(f"✅ SharePoint synced: Shop {shop_id} → {new_status}")
+        else:
+            st.error(f"❌ SharePoint sync failed")
             
-            if success:
-                st.success(f"✅ Status synced to SharePoint (Item ID: {item_id})")
-            else:
-                st.warning(f"⚠️ SharePoint sync failed for shop {shop_id}")
-                
-        except Exception as e:
-            st.warning(f"⚠️ SharePoint sync error: {str(e)}")
-            # Don't raise exception - local update already succeeded
+    except Exception as e:
+        st.error(f"❌ Sync error: {str(e)}")
+
+
 
 
 

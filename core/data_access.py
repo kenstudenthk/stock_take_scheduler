@@ -672,44 +672,67 @@ def export_schedule_to_sharepoint(year: int = None, month: int = None) -> bool:
 
 
 
-def _get_sharepoint_item_id(shop_id: str, list_url: str, token: str) -> int | None:
+def _get_sharepoint_item_id(shop_id: str, list_url: str, token: str) -> str | None:
     """
-    根據 shop_id 查詢對應的 SharePoint List Item ID
+    根據 Shop Code (field_6) 查詢對應的 SharePoint Item ID
+    
+    前提：field_6 已在 SharePoint List 中設為索引欄位
     
     Args:
-        shop_id: 店舖代碼（例如 "S001"）
-        list_url: SharePoint List API URL
-        token: Access Token
+        shop_id: 店舖代碼（任何格式，例如 "3326" 或 "03326"）
+        list_url: Microsoft Graph List URL
+        token: Microsoft Graph Access Token
         
     Returns:
-        SharePoint Item ID 或 None（找不到時）
+        SharePoint Item ID (字串) 或 None
     """
     try:
         import requests
         
-        # ✅ 使用 OData 查詢語法搜尋
-        query_url = f"{list_url}/items?$filter=field_6 eq '{shop_id}'&$select=id"
+        # ✅ 將 shop_id 補齊為 5 位數（統一格式）
+        shop_code_padded = str(shop_id).zfill(5)
+        
+        print(f"🔍 Querying SharePoint for field_6 = '{shop_code_padded}'")
+        
+        # ✅ 使用 field_6 查詢（已索引，速度快）
+        query_url = f"{list_url}/items?$filter=fields/field_6 eq '{shop_code_padded}'&$select=id&$expand=fields($select=field_6,Title,ScheduleStatus)"
         
         headers = {
             "Authorization": f"Bearer {token}",
-            "Accept": "application/json;odata=verbose"
+            "Accept": "application/json"
+            # ✅ 不需要 Prefer header（因為 field_6 已索引）
         }
         
-        response = requests.get(query_url, headers=headers)
+        response = requests.get(query_url, headers=headers, timeout=10)
         
         if response.status_code == 200:
             data = response.json()
-            items = data.get("d", {}).get("results", [])
+            items = data.get("value", [])
             
             if items and len(items) > 0:
-                return items[0].get("Id") or items[0].get("id")
-        
-        return None
+                item_id = items[0].get("id")
+                fields = items[0].get("fields", {})
+                
+                print(f"✅ Found Item:")
+                print(f"   - Item ID: {item_id}")
+                print(f"   - field_6: {fields.get('field_6')}")
+                print(f"   - Title: {fields.get('Title')}")
+                print(f"   - Current Status: {fields.get('ScheduleStatus')}")
+                
+                return item_id
+            else:
+                print(f"⚠️ No item found with field_6 = '{shop_code_padded}'")
+                return None
+        else:
+            print(f"❌ Query failed: {response.status_code}")
+            print(f"Response: {response.text}")
+            return None
         
     except Exception as e:
-        print(f"❌ 查詢 SharePoint Item ID 失敗: {e}")
+        print(f"❌ 查詢失敗: {e}")
+        import traceback
+        traceback.print_exc()
         return None
-
 
 def sync_schedule_back_to_sharepoint(start_date: str | None = None) -> bool:
     """
@@ -732,58 +755,55 @@ def sync_schedule_back_to_sharepoint(start_date: str | None = None) -> bool:
 import requests  # 如果檔案上面還沒 import，就補這行
 
 def update_sharepoint_item_status(
-    item_id: int,
+    item_id: str,
     new_status: str,
     list_url: str | None = None,
     token: str | None = None,
     status_field_internal_name: str = "ScheduleStatus",
 ) -> bool:
     """
-    直接更新 SharePoint List 某一筆 item 的狀態欄位。
-
-    item_id: SharePoint List item 的 ID（整數）
-    new_status: 要寫入的狀態 (例如 "Closed", "Done", "Rescheduled")
-    list_url: Settings 裡的 SharePoint List API URL（不含 /items(...)）
-    token: Bearer access token（從 Graph Explorer 貼過來）
-    status_field_internal_name: 清單裡狀態欄位的 internal name，預設 "ScheduleStatus"
+    更新 SharePoint List 項目狀態
     """
-    # 如果呼叫端沒傳，就從 settings 拿
+    import requests
+    
     if list_url is None:
         list_url = get_setting("SHAREPOINT_LIST_URL")
     if token is None:
         token = get_setting("SHAREPOINT_ACCESS_TOKEN")
 
     if not list_url or not token:
-        print("⚠️ SHAREPOINT_LIST_URL 或 SHAREPOINT_ACCESS_TOKEN 未設定，略過 SharePoint 更新")
+        print("⚠️ SharePoint settings not configured")
         return False
 
-    # 組 URL：<list_url>/items(<ID>)
-    url = f"{list_url}/items({item_id})"
+    url = f"{list_url}/items/{item_id}/fields"
 
     headers = {
         "Authorization": f"Bearer {token}",
-        "Accept": "application/json;odata=verbose",
-        "Content-Type": "application/json;odata=verbose",
-        "IF-MATCH": "*",
-        "X-HTTP-Method": "MERGE",
+        "Content-Type": "application/json",
+        "Accept": "application/json"
     }
 
-    # 僅更新一個欄位即可；如果你的欄位 internal name 不是 Status，請改參數
     body = {
-        status_field_internal_name: new_status,
+        status_field_internal_name: new_status
     }
 
     try:
-        resp = requests.post(url, headers=headers, json=body, timeout=15)
-        # SharePoint 成功更新通常回 204 No Content
-        if resp.status_code in (200, 204):
-            print(f"✅ SharePoint item {item_id} updated to status='{new_status}'")
+        print(f"📤 Updating Item {item_id}: {status_field_internal_name}='{new_status}'")
+        
+        response = requests.patch(url, headers=headers, json=body, timeout=15)
+        
+        if response.status_code in (200, 204):
+            print(f"✅ SharePoint updated successfully")
             return True
         else:
-            print(f"❌ 更新 SharePoint 失敗: {resp.status_code} {resp.text}")
+            print(f"❌ Update failed: {response.status_code}")
+            print(f"Response: {response.text}")
             return False
+            
     except Exception as e:
-        print(f"❌ 呼叫 SharePoint REST API 更新失敗: {e}")
+        print(f"❌ Update error: {e}")
+        import traceback
+        traceback.print_exc()
         return False
 
 
