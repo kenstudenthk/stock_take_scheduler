@@ -53,19 +53,19 @@ def get_holiday_df() -> pd.DataFrame:
     """Get all holidays as DataFrame for Settings tab display."""
     with get_db_connection() as conn:
         df = pd.read_sql_query(
-            "SELECT date, name_chi, type FROM holidays ORDER BY date;",  # ✅
+            "SELECT date, name_chi, type FROM holidays ORDER BY date;",
             conn
         )
     return df
 
 
-def add_holiday(date: str, name_chi: str, holiday_type: str = "General"):  # ✅
+def add_holiday(date: str, name_chi: str, holiday_type: str = "General"):
     """Add a new holiday (call clear_holidays_cache after)."""
     with get_db_connection() as conn:
         cur = conn.cursor()
         cur.execute(
             """
-            INSERT OR REPLACE INTO holidays (date, name_chi, type)  # ✅
+            INSERT OR REPLACE INTO holidays (date, name_chi, type)
             VALUES (?, ?, ?);
             """,
             (date, name_chi, holiday_type),
@@ -73,26 +73,40 @@ def add_holiday(date: str, name_chi: str, holiday_type: str = "General"):  # ✅
     clear_holidays_cache()
 
 
-def import_holidays_from_list(holidays_list: list[dict]):
-    """
-    Batch import holidays.
-    holidays_list format: [{"date": "2025-01-01", "name_chi": "元旦", "type": "Statutory"}, ...]  # ✅
-    """
+def delete_holiday(date: str):
+    """Delete a holiday (call clear_holidays_cache after)."""
     with get_db_connection() as conn:
         cur = conn.cursor()
-        cur.executemany(
-            """
-            INSERT OR REPLACE INTO holidays (date, name_chi, type)  # ✅
-            VALUES (?, ?, ?);
-            """,
-            [(h["date"], h["name_chi"], h.get("type", "General")) for h in holidays_list],  # ✅
-        )
+        cur.execute("DELETE FROM holidays WHERE date = ?;", (date,))
     clear_holidays_cache()
 
 
-# ✅ 更新預設假期資料格式
+def import_holidays_from_list(holidays_list: list[dict]):
+    """
+    Batch import holidays.
+    holidays_list format: [{"date": "2025-01-01", "name_chi": "元旦", "type": "Statutory"}, ...]
+    """
+    with get_db_connection() as conn:
+        cur = conn.cursor()
+        
+        # 準備資料
+        data = [(h["date"], h["name_chi"], h.get("type", "General")) for h in holidays_list]
+        
+        # 執行批次插入
+        cur.executemany(
+            """
+            INSERT OR REPLACE INTO holidays (date, name_chi, type)
+            VALUES (?, ?, ?);
+            """,
+            data
+        )
+    
+    clear_holidays_cache()
+
+
+# ✅ Hong Kong holidays for 2025-2026
 HK_HOLIDAYS_2025_2026 = [
-    {"date": "2025-01-01", "name_chi": "元旦", "type": "Statutory"},  # ✅
+    {"date": "2025-01-01", "name_chi": "元旦", "type": "Statutory"},
     {"date": "2025-01-29", "name_chi": "農曆年初一", "type": "Statutory"},
     {"date": "2025-01-30", "name_chi": "農曆年初二", "type": "Statutory"},
     {"date": "2025-01-31", "name_chi": "農曆年初三", "type": "Statutory"},
@@ -111,7 +125,6 @@ HK_HOLIDAYS_2025_2026 = [
     {"date": "2025-12-26", "name_chi": "聖誕節後第一個周日", "type": "Statutory"},
     {"date": "2026-01-01", "name_chi": "元旦", "type": "Statutory"},
 ]
-
 
 
 def init_default_holidays():
