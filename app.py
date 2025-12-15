@@ -89,50 +89,89 @@ def main():
          st.title("🔧 Debug Tools")
          st.caption("Admin use only")
     
-    # ✅ 新增：強制重建表格按鈕
+    # 在 app.py 的強制重建按鈕中修改
+
     if st.button("⚡ 強制重建表格 (Fix Schema)", type="primary"):
         try:
+            # ✅ 步驟 0: 先備份 SharePoint 設定
+            st.info("💾 備份設定...")
+            try:
+                old_url = data_access.get_setting("SHAREPOINT_LIST_URL")
+                old_token = data_access.get_setting("SHAREPOINT_ACCESS_TOKEN")
+                old_shops_per_day = data_access.get_setting("shops_per_day", "20")
+                old_groups_per_day = data_access.get_setting("groups_per_day", "3")
+            except:
+                old_url = None
+                old_token = None
+                old_shops_per_day = "20"
+                old_groups_per_day = "3"
+            
+            st.write(f"- SharePoint URL: {'已備份' if old_url else '未設定'}")
+            st.write(f"- Access Token: {'已備份' if old_token else '未設定'}")
+            
+            # 步驟 1: 刪除舊表格
+            st.info("🗑️ 刪除舊表格...")
             with data_access.get_db_connection() as conn:
                 cur = conn.cursor()
-                
-                # 1. 刪除舊表格
-                st.info("🗑️ 刪除舊表格...")
                 cur.execute("DROP TABLE IF EXISTS shop_master;")
                 cur.execute("DROP TABLE IF EXISTS schedule;")
                 cur.execute("DROP TABLE IF EXISTS holidays;")
-                cur.execute("DROP TABLE IF EXISTS settings;")
+                cur.execute("DROP TABLE IF EXISTS settings;")  # ⚠️ 這會清空所有設定
                 conn.commit()
-                
-                st.success("✅ 舊表格已刪除")
-                
-            # 2. 重新建立正確的 schema
+            
+            st.success("✅ 舊表格已刪除")
+            
+            # 步驟 2: 重新建立正確的 schema
             st.info("🔨 建立新表格...")
             data_access.init_db()
             
-            # 3. 重新匯入資料
-            st.info("📥 從 SharePoint 匯入資料...")
-            result = data_access.import_shops_from_sharepoint(overwrite=False)
+            # ✅ 步驟 3: 恢復 SharePoint 設定
+            st.info("♻️ 恢復設定...")
+            if old_url:
+                data_access.set_setting("SHAREPOINT_LIST_URL", old_url)
+                st.write("- SharePoint URL 已恢復")
+            if old_token:
+                data_access.set_setting("SHAREPOINT_ACCESS_TOKEN", old_token)
+                st.write("- Access Token 已恢復")
             
-            st.success(f"""
-            ✅ 表格重建完成!
-            - 成功匯入: {result['success']} 筆
-            - 失敗: {result['failed']} 筆
-            - 跳過: {result['skipped']} 筆
-            """)
+            data_access.set_setting("shops_per_day", old_shops_per_day)
+            data_access.set_setting("groups_per_day", old_groups_per_day)
             
-            # 4. 初始化假期
+            # 步驟 4: 從 SharePoint 匯入資料
+            if old_url and old_token:
+                st.info("📥 從 SharePoint 匯入資料...")
+                result = data_access.import_shops_from_sharepoint(
+                    list_url=old_url,
+                    token=old_token,
+                    overwrite=False
+                )
+                
+                st.success(f"""
+                ✅ 匯入完成!
+                - 成功: {result['success']} 筆
+                - 失敗: {result['failed']} 筆
+                - 跳過: {result['skipped']} 筆
+                """)
+            else:
+                st.warning("⚠️ SharePoint 設定未備份,請前往 Settings 頁面重新設定")
+            
+            # 步驟 5: 初始化假期
+            st.info("📅 初始化假期...")
             holidays.init_default_holidays()
             
-            # 5. 重置初始化標誌
+            # 步驟 6: 設定初始化標誌
             data_access.set_setting("app_initialized", "true")
+            data_access.set_setting("app_version", "1.0.0")
             
             st.balloons()
-            st.info("請重新整理頁面以載入新資料")
+            st.success("🎉 資料庫重建完成!")
+            st.info("請重新整理頁面")
             
         except Exception as e:
             st.error(f"❌ 重建失敗: {e}")
             import traceback
             st.code(traceback.format_exc())
+
     
     # 2. Display header
     st.title("📦 Stock Take Scheduler")
