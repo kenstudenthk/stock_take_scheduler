@@ -176,7 +176,6 @@ def create_route_map_folium(
     
     return m
 
-
 def _add_shop_marker(feature_group, shop: Dict, color: str, group_no: int):
     """
     Add a marker with brand logo to the map.
@@ -220,34 +219,34 @@ def _add_shop_marker(feature_group, shop: Dict, color: str, group_no: int):
     
     # Determine icon
     if logo_url and logo_url.startswith('http'):
-        # Use custom HTML icon with logo
+        # ✅ 縮小 Logo 尺寸
         icon_html = f"""
         <div style="position: relative;">
             <div style="
-                width: 40px; 
-                height: 40px; 
+                width: 32px;          /* ✅ 從 40px 改為 32px */
+                height: 32px;         /* ✅ 從 40px 改為 32px */
                 background-color: white;
-                border: 3px solid {color};
-                border-radius: 8px;
+                border: 2px solid {color};  /* ✅ 從 3px 改為 2px */
+                border-radius: 6px;   /* ✅ 從 8px 改為 6px */
                 display: flex;
                 align-items: center;
                 justify-content: center;
                 box-shadow: 0 2px 4px rgba(0,0,0,0.3);
             ">
                 <img src="{logo_url}" 
-                     style="max-width: 34px; max-height: 34px; object-fit: contain;"
-                     onerror="this.style.display='none'; this.parentElement.innerHTML='<div style=\\'color:{color};font-weight:bold;font-size:14px;\\'>{brand[:2]}</div>'">
+                     style="max-width: 28px; max-height: 28px; object-fit: contain;"  /* ✅ 從 34px 改為 28px */
+                     onerror="this.style.display='none'; this.parentElement.innerHTML='<div style=\\'color:{color};font-weight:bold;font-size:12px;\\'>{brand[:2]}</div>'">
             </div>
             <div style="
                 position: absolute;
-                bottom: -18px;
+                bottom: -16px;        /* ✅ 從 -18px 改為 -16px */
                 left: 50%;
                 transform: translateX(-50%);
                 background-color: {color};
                 color: white;
-                padding: 2px 6px;
-                border-radius: 10px;
-                font-size: 10px;
+                padding: 1px 4px;     /* ✅ 從 2px 6px 改為 1px 4px */
+                border-radius: 8px;   /* ✅ 從 10px 改為 8px */
+                font-size: 9px;       /* ✅ 從 10px 改為 9px */
                 font-weight: bold;
                 white-space: nowrap;
                 box-shadow: 0 1px 2px rgba(0,0,0,0.3);
@@ -262,10 +261,10 @@ def _add_shop_marker(feature_group, shop: Dict, color: str, group_no: int):
         icon_html = f"""
         <div style="position: relative;">
             <div style="
-                width: 36px;
-                height: 36px;
+                width: 28px;          /* ✅ 從 36px 改為 28px */
+                height: 28px;         /* ✅ 從 36px 改為 28px */
                 background-color: {color};
-                border: 3px solid white;
+                border: 2px solid white;  /* ✅ 從 3px 改為 2px */
                 border-radius: 50%;
                 display: flex;
                 align-items: center;
@@ -273,18 +272,18 @@ def _add_shop_marker(feature_group, shop: Dict, color: str, group_no: int):
                 box-shadow: 0 2px 4px rgba(0,0,0,0.4);
                 color: white;
                 font-weight: bold;
-                font-size: 14px;
+                font-size: 11px;      /* ✅ 從 14px 改為 11px */
             ">{brand_initial}</div>
             <div style="
                 position: absolute;
-                bottom: -16px;
+                bottom: -14px;        /* ✅ 從 -16px 改為 -14px */
                 left: 50%;
                 transform: translateX(-50%);
                 background-color: white;
                 color: {color};
-                padding: 1px 5px;
-                border-radius: 8px;
-                font-size: 9px;
+                padding: 1px 4px;     /* ✅ 從 1px 5px 改為 1px 4px */
+                border-radius: 6px;   /* ✅ 從 8px 改為 6px */
+                font-size: 8px;       /* ✅ 從 9px 改為 8px */
                 font-weight: bold;
                 border: 1px solid {color};
                 white-space: nowrap;
@@ -300,6 +299,7 @@ def _add_shop_marker(feature_group, shop: Dict, color: str, group_no: int):
         tooltip=f"{shop_name} ({brand})",
         icon=icon
     ).add_to(feature_group)
+
 
 
 def _get_logo_html(logo_url: str, brand: str) -> str:
