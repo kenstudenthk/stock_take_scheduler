@@ -187,7 +187,6 @@ def generate_schedule(
     # ========== Phase 5: Write to database ==========
     print("💾 Writing schedule to database...")
     now = datetime.datetime.now().isoformat(timespec="seconds")
-    
 
     schedule_rows = []
     for assignment in assignments:
@@ -226,6 +225,7 @@ def generate_schedule(
         )
 
     print(f"✓ Scheduled {len(schedule_rows)} shops")
+
 
     
     data_access.set_setting("shops_per_day", str(shops_per_day))
