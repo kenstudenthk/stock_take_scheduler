@@ -188,38 +188,45 @@ def generate_schedule(
     print("💾 Writing schedule to database...")
     now = datetime.datetime.now().isoformat(timespec="seconds")
     
+
     schedule_rows = []
     for assignment in assignments:
-        schedule_rows.append((
-            assignment['date'],
-            assignment['shop_id'],
-            "Planned",
-            None,
-            "Auto",
-            0,
-            0.0,
-            0.0,
-            now,
-            now,
-            assignment['group_no'],
-        ))
-    
+        # ✅ 需要從 shop_id 查詢店舖資料
+        shop = next((s for s in shops if s['shop_id'] == assignment['shop_id']), None)
+        
+        if shop:
+            schedule_rows.append((
+                assignment['shop_id'],
+                shop.get('shop_name', ''),
+                shop.get('address', ''),
+                shop.get('region', ''),
+                shop.get('district', ''),
+                shop.get('brand', ''),
+                shop.get('lat', 0.0),
+                shop.get('lng', 0.0),
+                shop.get('is_mtr', 'N'),
+                assignment['date'],  # ✅ schedule_date
+                assignment['group_no'],
+                "Planned",
+                now,
+            ))
+
     with data_access.get_db_connection() as conn:
         cur = conn.cursor()
         cur.execute("DELETE FROM schedule;")
         cur.executemany(
             """
             INSERT INTO schedule (
-                date, shop_id, status, status_reason,
-                assigned_by, day_route_order,
-                day_total_distance_km, day_total_travel_time_min,
-                created_at, updated_at, group_no
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+                shop_id, shop_name, address, region, district,
+                brand, lat, lng, is_mtr,
+                schedule_date, group_number, status, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
             """,
             schedule_rows,
         )
-    
+
     print(f"✓ Scheduled {len(schedule_rows)} shops")
+
     
     data_access.set_setting("shops_per_day", str(shops_per_day))
     
