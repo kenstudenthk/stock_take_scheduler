@@ -5,14 +5,13 @@ from core import data_access, map_visualizer
 
 
 def render():
-    st.subheader("View Schedule")
+    st.subheader("🔍 View Schedule")
 
-    # 記住是否已經搜尋過，用來控制首次自動載入
     if "view_schedule_searched" not in st.session_state:
         st.session_state.view_schedule_searched = False
 
-    # ---------- Filters ----------
-    st.markdown("### Search filters")
+    # ========== Filters ==========
+    st.markdown("### 🔍 Search filters")
 
     col1, col2, col3, col4 = st.columns(4)
 
@@ -20,33 +19,23 @@ def render():
         date_val = st.date_input(
             "Date",
             value=datetime.date.today(),
-            help="Filter by schedule date.",
             key="view_date",
         )
         use_date = st.checkbox("Use date filter", value=True, key="view_use_date")
 
     with col2:
-        shop_id = st.text_input(
-            "Shop ID",
-            help="Exact shop ID match",
-            key="view_shop_id",
-        ).strip()
+        shop_id = st.text_input("Shop ID", key="view_shop_id").strip()
 
     with col3:
         region = st.selectbox(
             "Region",
             ["All", "HK", "KN", "NT", "IS", "MO"],
             index=0,
-            help="HK=Hong Kong Island, KN=Kowloon, NT=New Territories, IS=Islands, MO=Macau.",
             key="view_region",
         )
 
     with col4:
-        district = st.text_input(
-            "District (partial match)",
-            help="Enter partial district name",
-            key="view_district",
-        ).strip()
+        district = st.text_input("District", key="view_district").strip()
 
     status = st.multiselect(
         "Status",
@@ -57,35 +46,21 @@ def render():
 
     col_btn1, col_btn2, _ = st.columns([1, 1, 3])
     with col_btn1:
-        search_clicked = st.button(
-            "🔍 Search",
-            type="primary",
-            use_container_width=True,
-            key="view_search_btn",
-        )
+        search_clicked = st.button("🔍 Search", type="primary", use_container_width=True)
     with col_btn2:
-        clear_clicked = st.button(
-            "🔄 Clear filters",
-            use_container_width=True,
-            key="view_clear_btn",
-        )
+        if st.button("🔄 Clear", use_container_width=True):
+            st.session_state.view_schedule_searched = False
+            st.rerun()
 
-    # Clear filters → 直接重載頁面
-    if clear_clicked:
-        st.session_state.view_schedule_searched = False
-        st.rerun()
-
-    # ---------- Perform search ----------
-    # 首次進入畫面時，自動用當日 + 全部狀態做一次查詢
+    # ========== Perform search ==========
     if search_clicked or not st.session_state.view_schedule_searched:
         st.session_state.view_schedule_searched = True
 
-        with st.spinner("Searching schedule..."):
+        with st.spinner("Searching..."):
+            # ✅ 修正: 只在勾選時使用日期篩選
             date_str = date_val.isoformat() if use_date else None
 
             try:
-                # ✅ 修正：使用 search_shops 而不是 search_schedule
-                # 準備參數
                 regions_param = [region] if region and region != "All" else None
                 districts_param = [district] if district else None
                 
@@ -98,82 +73,92 @@ def render():
                 )
 
                 if not rows:
-                    st.warning("No schedule records found for the selected filters.")
+                    st.warning("No records found")
                     return
 
-                # ---------- Map + Table 佈局 ----------
+                # ========== Map + Table ==========
                 col_map, col_table = st.columns([2, 3])
 
                 with col_map:
-                    st.markdown("#### 📍 Map (filtered shops)")
-                    deck = map_visualizer.create_route_map(
-                        rows,
-                        date_str or "Schedule",
-                        show_route_lines=False,   # View 頁只顯示點
-                        show_labels=False,
-                        selected_groups=None,
-                        map_style="light",
-                    )
-                    st.pydeck_chart(deck, use_container_width=True)
+                    st.markdown("#### 📍 Map")
+                    
+                    # Prepare map data
+                    map_data = []
+                    for r in rows:
+                        if r.get('lat') and r.get('lng'):
+                            map_data.append({
+                                'shop_id': r.get('shop_id', ''),
+                                'shop_name': r.get('shop_name', ''),
+                                'brand': r.get('brand', ''),
+                                'brand_icon_url': r.get('brand_icon_url', ''),
+                                'region': r.get('region', ''),
+                                'district': r.get('district', ''),
+                                'address': r.get('address', ''),
+                                'lat': float(r.get('lat')),
+                                'lng': float(r.get('lng')),
+                                'group_number': 1,
+                                'status': r.get('status', 'Planned')
+                            })
+                    
+                    if map_data:
+                        deck = map_visualizer.create_route_map(
+                            map_data,
+                            date_str or "Schedule",
+                            show_route_lines=False,
+                            show_labels=False,
+                            selected_groups=None,
+                            map_style="light",
+                        )
+                        st.pydeck_chart(deck, use_container_width=True)
 
-                # ---------- 準備表格資料 ----------
-                display_rows: list[dict] = []
+                # ========== Table ==========
+                display_rows = []
                 for r in rows:
-                    display_rows.append(
-                        {
-                            "Date": r.get("schedule_date") or r.get("date", ""),
-                            "Shop ID": r.get("shop_id", ""),
-                            "Shop Name": r.get("shop_name", ""),
-                            "Status": r.get("status", "Planned"),
-                            "Region": r.get("region") or r.get("region_code", ""),
-                            "District": r.get("district") or r.get("district_en", ""),
-                            "Brand": r.get("brand", "Unknown"),  # ✅ 加入 Brand
-                            "Address": r.get("address") or r.get("address_zh", ""),
-                            "Status Reason": r.get("status_reason", "") or "",
-                        }
-                    )
+                    display_rows.append({
+                        "Logo": r.get("brand_icon_url", ""),
+                        "Date": r.get("schedule_date") or r.get("date", ""),
+                        "Shop ID": r.get("shop_id", ""),
+                        "Shop Name": r.get("shop_name", ""),
+                        "Brand": r.get("brand", "Unknown"),
+                        "Status": r.get("status", "Planned"),
+                        "Region": r.get("region") or "",
+                        "District": r.get("district") or "",
+                        "Address": r.get("address") or "",
+                    })
 
                 with col_table:
-                    # Show count
-                    st.success(f"✓ Found {len(display_rows)} schedule record(s)")
+                    st.success(f"✓ Found {len(display_rows)} records")
 
-                    # Dataframe
                     st.dataframe(
                         display_rows,
                         use_container_width=True,
                         column_config={
-                            "Status": st.column_config.TextColumn(
-                                "Status",
-                                help="Current status of the shop visit",
+                            "Logo": st.column_config.ImageColumn(
+                                "Logo",
+                                width="small"
                             ),
-                            "Date": st.column_config.DateColumn(
-                                "Date",
-                                help="Scheduled date",
-                            ),
+                            "Status": st.column_config.TextColumn("Status"),
+                            "Date": st.column_config.DateColumn("Date"),
                         },
                     )
 
-                    # Download CSV
-                    col_dl1, _ = st.columns([1, 3])
-                    with col_dl1:
-                        st.download_button(
-                            "📥 Download CSV",
-                            _rows_to_csv(display_rows),
-                            file_name=f"schedule_export_{date_str or 'all'}.csv",
-                            mime="text/csv",
-                            use_container_width=True,
-                        )
+                    st.download_button(
+                        "📥 Download CSV",
+                        _rows_to_csv(display_rows),
+                        file_name=f"schedule_{date_str or 'all'}.csv",
+                        mime="text/csv",
+                        use_container_width=True,
+                    )
 
-                    # Quick statistics
-                    with st.expander("📊 Quick statistics", expanded=True):
-                        status_counts: dict[str, int] = {}
-                        region_counts: dict[str, int] = {}
-                        brand_counts: dict[str, int] = {}
+                    # Statistics
+                    with st.expander("📊 Statistics", expanded=True):
+                        status_counts = {}
+                        region_counts = {}
+                        brand_counts = {}
 
                         for row in display_rows:
-                            # Handle None values
-                            s = row["Status"] if row["Status"] else "Unknown"
-                            rgn = row["Region"] if row["Region"] else "Unknown"
+                            s = row["Status"] or "Unknown"
+                            rgn = row["Region"] or "Unknown"
                             brand = row.get("Brand", "Unknown") or "Unknown"
                             
                             status_counts[s] = status_counts.get(s, 0) + 1
@@ -184,32 +169,30 @@ def render():
                         
                         with col_s1:
                             st.markdown("**By Status:**")
-                            for s, cnt in sorted(status_counts.items(), key=lambda x: (x[0] is None, x[0])):
-                                st.metric(s or "Unknown", cnt)
+                            for s, cnt in sorted(status_counts.items()):
+                                st.metric(s, cnt)
                         
                         with col_s2:
                             st.markdown("**By Region:**")
-                            for rgn, cnt in sorted(region_counts.items(), key=lambda x: (x[0] is None, x[0])):
-                                st.metric(rgn or "Unknown", cnt)
+                            for rgn, cnt in sorted(region_counts.items()):
+                                st.metric(rgn, cnt)
                         
                         with col_s3:
                             st.markdown("**By Brand:**")
-                            # 只顯示前 5 個品牌
                             for brand, cnt in sorted(brand_counts.items(), key=lambda x: -x[1])[:5]:
-                                st.metric(brand or "Unknown", cnt)
+                                st.metric(brand, cnt)
                             
                             if len(brand_counts) > 5:
-                                st.caption(f"...and {len(brand_counts) - 5} more brands")
+                                st.caption(f"...and {len(brand_counts) - 5} more")
 
             except Exception as e:
-                st.error(f"Error searching schedule: {str(e)}")
+                st.error(f"Error: {str(e)}")
                 import traceback
-                with st.expander("Show error details"):
+                with st.expander("Details"):
                     st.code(traceback.format_exc())
 
 
 def _rows_to_csv(rows: list[dict]) -> str:
-    """Convert list of dicts to CSV string."""
     import csv
     import io
 

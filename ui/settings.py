@@ -1,307 +1,289 @@
 # ui/settings.py
 
 import streamlit as st
-from core import data_access, holidays, amap_client
+from core import data_access
+
 
 def render():
-    st.subheader("Settings")
-
-    # --- Capacity settings ---
-    st.markdown("### Scheduling capacity")
+    """Render the Settings page with improved UI/UX."""
+    st.subheader("⚙️ Settings")
     
-    cap_str = data_access.get_setting("shops_per_day", "20")
-    try:
-        current_cap = int(cap_str)
-    except (TypeError, ValueError):
-        current_cap = 20
-
-    new_cap = st.number_input(
-        "Maximum shops per day (used for Generate Schedule and re-schedule capacity)",
-        min_value=1,
-        max_value=60,
-        value=current_cap,
-        step=1,
-    )
-
-    if st.button("Save capacity"):
-        data_access.set_setting("shops_per_day", str(new_cap))
-        st.success(f"Saved: max {new_cap} shops per day.")
+    # Create tabs for better organization
+    tab1, tab2, tab3, tab4 = st.tabs([
+        "📡 SharePoint Connection",
+        "🗓️ Schedule Parameters",
+        "🗺️ Map Settings",
+        "💾 Data Management"
+    ])
     
-    st.caption(
-        "This value is used when generating new schedules and when re-scheduling "
-        "shops (capacity-aware)."
-    )
-
-    st.markdown("---")
-
-    # --- Group settings ---
-    st.markdown("### Daily group configuration")
-
-    raw_groups = data_access.get_setting("groups_per_day", None)
-    raw_per_group = data_access.get_setting("shops_per_group", None)
-
-    try:
-        groups_per_day = int(raw_groups) if raw_groups is not None else 3
-    except (TypeError, ValueError):
-        groups_per_day = 3
-
-    try:
-        shops_per_group = int(raw_per_group) if raw_per_group is not None else 3
-    except (TypeError, ValueError):
-        shops_per_group = 3
-
-    col1, col2 = st.columns(2)
-
-    with col1:
-        groups_per_day_new = st.number_input(
-            "Groups per day",
-            min_value=1,
-            max_value=10,
-            value=groups_per_day,
-            step=1,
-            help="Number of parallel groups (e.g. 3 teams).",
-        )
-
-    with col2:
-        shops_per_group_new = st.number_input(
-            "Shops per group",
-            min_value=1,
-            max_value=10,
-            value=shops_per_group,
-            step=1,
-            help="Target shops per group (e.g. 3 shops per team).",
-        )
-
-    if st.button("Save group settings"):
-        data_access.set_setting("groups_per_day", str(groups_per_day_new))
-        data_access.set_setting("shops_per_group", str(shops_per_group_new))
-
-        total_per_day = groups_per_day_new * shops_per_group_new
-        data_access.set_setting("shops_per_day", str(total_per_day))
-
-        st.success(
-            f"Saved: {groups_per_day_new} groups/day × "
-            f"{shops_per_group_new} shops/group = {total_per_day} shops/day."
-        )
-
-    st.caption(
-        "Schedules will be split into groups (Group 1, Group 2, ...) per day. "
-        "Remaining shops (if not divisible) will fill Group 1, then Group 2, etc."
-    )
-
-    st.markdown("---")
-
-    # --- Amap API configuration ---
-    st.markdown("### AMap API configuration")
-
-    api_key = data_access.get_setting("AMAP_WEB_KEY", "")
-
-    new_key = st.text_input(
-        "AMap Web Service API Key",
-        value=api_key or "",
-        type="password",
-        help="Used for distance and routing calculations. Get your key from https://lbs.amap.com/",
-    )
-
-    col1, col2 = st.columns([1, 1])
-
-    with col1:
-        if st.button("Save AMap API key"):
-            data_access.set_setting("AMAP_WEB_KEY", new_key.strip())
-            st.success("AMap API key saved.")
-            st.rerun()
-
-    with col2:
-        if st.button("Test API key"):
-            if not new_key.strip():
-                st.error("Please enter an API key first.")
-            else:
-                with st.spinner("Testing API connection..."):
-                    try:
-                        data_access.set_setting("AMAP_WEB_KEY", new_key.strip())
-                        is_valid = amap_client.test_api_key()
-                        if is_valid:
-                            st.success("✓ API key is valid and working!")
-                        else:
-                            st.error("✗ API key test failed. Please check your key.")
-                    except Exception as e:
-                        st.error(f"✗ Error testing API: {str(e)}")
-
-    if api_key:
-        st.caption("✓ API key is configured")
-    else:
-        st.warning("⚠️ No API key configured. Distance calculations will not work.")
-
-    st.markdown("---")
-
-    # --- Holiday management ---
-    st.markdown("### Holiday management")
-
-    with st.expander("View/Edit holidays"):
-        holiday_df = holidays.get_holiday_df()
-        if not holiday_df.empty:
-            st.dataframe(holiday_df, use_container_width=True)
-            st.caption(f"Total holidays: {len(holiday_df)}")
-        else:
-            st.info("No holidays configured.")
-
-        st.markdown("##### Add new holiday")
-        col1, col2, col3 = st.columns([2, 2, 1])
-
+    # ========== Tab 1: SharePoint Connection ==========
+    with tab1:
+        st.markdown("### 📡 SharePoint List Configuration")
+        st.caption("Configure connection to your SharePoint List for data synchronization")
+        
+        col1, col2 = st.columns([2, 1])
+        
         with col1:
-            new_holiday_date = st.date_input("Date", key="new_holiday_date")
-
+            sp_url = st.text_input(
+                "SharePoint List URL",
+                value=data_access.get_setting("SHAREPOINT_LIST_URL", ""),
+                help="Microsoft Graph API endpoint for your SharePoint List",
+                placeholder="https://graph.microsoft.com/v1.0/sites/{site-id}/lists/{list-id}"
+            )
+            
+            sp_token = st.text_input(
+                "Access Token",
+                value=data_access.get_setting("SHAREPOINT_ACCESS_TOKEN", ""),
+                type="password",
+                help="OAuth 2.0 Bearer token for Microsoft Graph API"
+            )
+            
+            status_field = st.text_input(
+                "Status Field Name",
+                value=data_access.get_setting("SHAREPOINT_STATUS_FIELD", "ScheduleStatus"),
+                help="Internal name of the status field in SharePoint"
+            )
+        
         with col2:
-            new_holiday_name = st.text_input(
-                "Holiday name (Chinese)", key="new_holiday_name"
-            )
-
-        with col3:
-            new_holiday_type = st.selectbox(
-                "Type",
-                ["Statutory", "General"],
-                key="new_holiday_type",
-            )
-
-        if st.button("Add holiday"):
-            if new_holiday_name.strip():
-                holidays.add_holiday(
-                    date=new_holiday_date.isoformat(),
-                    name_zh=new_holiday_name.strip(),
-                    holiday_type=new_holiday_type,
-                )
-                st.success(f"Added holiday: {new_holiday_name}")
-                st.rerun()
-            else:
-                st.error("Please enter a holiday name.")
-
-        if holiday_df.empty:
-            if st.button("Load default Hong Kong holidays (2025-2026)"):
-                holidays.init_default_holidays()
-                st.success("Default holidays loaded!")
-                st.rerun()
-
-    st.markdown("---")
-
-    # --- SharePoint settings ---
-    st.markdown("### ☁️ SharePoint Microsoft Graph API")
-
-    sp_url = data_access.get_setting("SHAREPOINT_LIST_URL", "") or ""
-    sp_token = data_access.get_setting("SHAREPOINT_ACCESS_TOKEN", "") or ""
-
-    st.info("""
-    **Microsoft Graph API URL 格式:**
+            st.info("""
+            **How to get these values:**
+            
+            1. **List URL**: Use Graph Explorer to find your list
+            2. **Access Token**: Use Azure AD app registration
+            3. **Status Field**: Check column settings in SharePoint
+            """)
+        
+        col_save, col_test = st.columns(2)
+        
+        with col_save:
+            if st.button("💾 Save SharePoint Settings", type="primary", use_container_width=True):
+                data_access.set_setting("SHAREPOINT_LIST_URL", sp_url)
+                data_access.set_setting("SHAREPOINT_ACCESS_TOKEN", sp_token)
+                data_access.set_setting("SHAREPOINT_STATUS_FIELD", status_field)
+                st.success("✅ SharePoint settings saved")
+        
+        with col_test:
+            if st.button("🧪 Test Connection", use_container_width=True):
+                if sp_url and sp_token:
+                    try:
+                        with st.spinner("Testing..."):
+                            result = data_access.import_shops_from_sharepoint(
+                                list_url=sp_url,
+                                token=sp_token,
+                                overwrite=False
+                            )
+                            st.success(f"✅ Connection successful! Found {result['success']} shops")
+                    except Exception as e:
+                        st.error(f"❌ Connection failed: {e}")
+                else:
+                    st.warning("⚠️ Please enter URL and token first")
     
-    `https://graph.microsoft.com/v1.0/sites/{site-id}/lists/{list-id}`
+    # ========== Tab 2: Schedule Parameters ==========
+    with tab2:
+        st.markdown("### 🗓️ Schedule Generation Parameters")
+        st.caption("Configure default parameters for schedule generation")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            shops_per_day = st.number_input(
+                "Shops per Day",
+                min_value=1,
+                max_value=100,
+                value=int(data_access.get_setting("shops_per_day", "20")),
+                help="Default number of shops to schedule per day"
+            )
+            
+            groups_per_day = st.number_input(
+                "Groups per Day",
+                min_value=1,
+                max_value=10,
+                value=int(data_access.get_setting("groups_per_day", "3")),
+                help="Number of teams/groups working each day"
+            )
+        
+        with col2:
+            max_distance = st.number_input(
+                "Max Distance (km)",
+                min_value=1,
+                max_value=50,
+                value=int(data_access.get_setting("max_distance_km", "10")),
+                help="Maximum distance between shops in same route"
+            )
+            
+            buffer_days = st.number_input(
+                "Buffer Days",
+                min_value=0,
+                max_value=30,
+                value=int(data_access.get_setting("buffer_days", "3")),
+                help="Extra days to add at the end of schedule"
+            )
+        
+        if st.button("💾 Save Schedule Parameters", type="primary", use_container_width=True):
+            data_access.set_setting("shops_per_day", str(shops_per_day))
+            data_access.set_setting("groups_per_day", str(groups_per_day))
+            data_access.set_setting("max_distance_km", str(max_distance))
+            data_access.set_setting("buffer_days", str(buffer_days))
+            st.success("✅ Schedule parameters saved")
     
-    ⚠️ 不要包含 `/items/` 在 URL 末尾
-    """)
-
-    sp_url_new = st.text_input(
-        "SharePoint List API URL",
-        value=sp_url,
-        help="Microsoft Graph API endpoint for your SharePoint list"
-    )
-
-    sp_token_new = st.text_input(
-        "Access Token (Bearer)",
-        value=sp_token,
-        type="password",
-        help="從 Azure AD 或 Graph Explorer 取得的 Access Token"
-    )
-
-    col_sp1, col_sp2 = st.columns(2)
-
-    with col_sp1:
-        if st.button("💾 Save SharePoint Settings"):
-            data_access.set_setting("SHAREPOINT_LIST_URL", sp_url_new.strip())
-            data_access.set_setting("SHAREPOINT_ACCESS_TOKEN", sp_token_new.strip())
-            st.success("✅ SharePoint settings saved.")
-
-    with col_sp2:
-        if st.button("📥 Import from SharePoint"):
-            if not sp_url_new.strip() or not sp_token_new.strip():
-                st.error("❌ 請先填寫 URL 和 Token")
-            else:
+    # ========== Tab 3: Map Settings ==========
+    with tab3:
+        st.markdown("### 🗺️ Map Configuration")
+        st.caption("Configure map display and routing options")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            map_provider = st.selectbox(
+                "Map Provider",
+                options=["Google Maps", "AMap (高德地圖)"],
+                index=0,
+                help="Default map provider for navigation"
+            )
+            
+            amap_key = st.text_input(
+                "AMap Web API Key",
+                value=data_access.get_setting("AMAP_WEB_KEY", ""),
+                type="password",
+                help="Required for AMap features"
+            )
+        
+        with col2:
+            default_center = st.text_input(
+                "Default Map Center",
+                value=data_access.get_setting("map_center", "22.3193,114.1694"),
+                help="Latitude,Longitude for default map center"
+            )
+            
+            default_zoom = st.slider(
+                "Default Zoom Level",
+                min_value=8,
+                max_value=15,
+                value=int(data_access.get_setting("default_zoom", "11")),
+                help="Higher number = more zoomed in"
+            )
+        
+        if st.button("💾 Save Map Settings", type="primary", use_container_width=True):
+            data_access.set_setting("map_provider", map_provider)
+            data_access.set_setting("AMAP_WEB_KEY", amap_key)
+            data_access.set_setting("map_center", default_center)
+            data_access.set_setting("default_zoom", str(default_zoom))
+            st.success("✅ Map settings saved")
+    
+    # ========== Tab 4: Data Management ==========
+    with tab4:
+        st.markdown("### 💾 Data Import/Export")
+        st.caption("Manage your shop master data and schedules")
+        
+        # Import section
+        st.markdown("#### 📥 Import Data")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            if st.button("📥 Import from SharePoint", use_container_width=True):
+                sp_url = data_access.get_setting("SHAREPOINT_LIST_URL")
+                sp_token = data_access.get_setting("SHAREPOINT_ACCESS_TOKEN")
+                
+                if sp_url and sp_token:
+                    with st.spinner("Importing..."):
+                        try:
+                            result = data_access.import_shops_from_sharepoint(
+                                list_url=sp_url,
+                                token=sp_token,
+                                overwrite=True
+                            )
+                            st.success(f"✅ Imported {result['success']} shops")
+                        except Exception as e:
+                            st.error(f"❌ Import failed: {e}")
+                else:
+                    st.warning("⚠️ Configure SharePoint settings first")
+        
+        with col2:
+            uploaded_file = st.file_uploader(
+                "📤 Upload CSV",
+                type=['csv'],
+                help="Upload a CSV file with shop data"
+            )
+            
+            if uploaded_file:
+                if st.button("Import CSV", use_container_width=True):
+                    try:
+                        import pandas as pd
+                        df = pd.read_csv(uploaded_file)
+                        st.success(f"✅ Loaded {len(df)} records from CSV")
+                        st.dataframe(df.head())
+                    except Exception as e:
+                        st.error(f"❌ CSV import failed: {e}")
+        
+        st.markdown("---")
+        
+        # Export section
+        st.markdown("#### 📤 Export Data")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            if st.button("📥 Export All Shops", use_container_width=True):
                 try:
-                    # 先儲存設定
-                    data_access.set_setting("SHAREPOINT_LIST_URL", sp_url_new.strip())
-                    data_access.set_setting("SHAREPOINT_ACCESS_TOKEN", sp_token_new.strip())
-                    
-                    with st.spinner("從 SharePoint 匯入中..."):
-                        result = data_access.import_shops_from_sharepoint(
-                            list_url=sp_url_new.strip(),
-                            token=sp_token_new.strip(),
-                            overwrite=True
+                    shops = data_access.get_all_shops(active_only=False)
+                    import pandas as pd
+                    df = pd.DataFrame(shops)
+                    csv = df.to_csv(index=False)
+                    st.download_button(
+                        "💾 Download shops.csv",
+                        csv,
+                        file_name="all_shops.csv",
+                        mime="text/csv",
+                        use_container_width=True
+                    )
+                except Exception as e:
+                    st.error(f"❌ Export failed: {e}")
+        
+        with col2:
+            if st.button("📥 Export All Schedules", use_container_width=True):
+                try:
+                    with data_access.get_db_connection() as conn:
+                        import pandas as pd
+                        df = pd.read_sql_query("SELECT * FROM schedule", conn)
+                        csv = df.to_csv(index=False)
+                        st.download_button(
+                            "💾 Download schedules.csv",
+                            csv,
+                            file_name="all_schedules.csv",
+                            mime="text/csv",
+                            use_container_width=True
                         )
-                    
-                    st.success(f"""
-                    ✅ 匯入完成!
-                    - 成功: {result['success']} 間
-                    - 失敗: {result['failed']} 間
-                    - 跳過: {result['skipped']} 間
-                    """)
-                    
-                    st.balloons()
-                    
                 except Exception as e:
-                    st.error(f"❌ 匯入失敗: {str(e)}")
-                    with st.expander("錯誤詳情"):
-                        import traceback
-                        st.code(traceback.format_exc())
-
-    st.markdown("---")
-
-    # --- Power Automate (舊的 CSV/JSON sync) ---
-    st.markdown("### 📤 Power Automate (Legacy)")
-
-    with st.expander("Power Automate HTTP Sync (CSV/JSON)"):
-        pa_url = st.text_input(
-            "Power Automate HTTP URL",
-            value=data_access.get_setting("PA_LIST_URL", ""),
-            type="password",
-            help="貼上 Power Automate Flow 的 HTTP 觸發器 URL",
-            key="pa_list_url",
-        )
-
-        if st.button("💾 Save Power Automate URL"):
-            data_access.set_setting("PA_LIST_URL", (pa_url or "").strip())
-            st.success("Power Automate URL 已儲存。")
-
-        if st.button("📥 Sync from Power Automate"):
-            url = data_access.get_setting("PA_LIST_URL")
-            if not url:
-                st.error("請先儲存 Power Automate URL")
-            else:
-                import requests
-                try:
-                    with st.spinner("下載資料中..."):
-                        resp = requests.get(url, headers={"Accept": "application/json"})
-                        resp.raise_for_status()
-
-                        content_type = resp.headers.get("Content-Type", "")
-
-                        if "json" in content_type:
-                            data = resp.json()
-                            if isinstance(data, list):
-                                items = data
-                            elif isinstance(data, dict):
-                                items = data.get("value", data)
-                            else:
-                                raise ValueError("未知的 JSON 格式")
-
-                            with st.spinner(f"更新資料庫 ({len(items)} 筆)..."):
-                                data_access.import_shops_from_json(items, overwrite=True)
-                        else:
-                            csv_path = "data/MxStockTakeMasterList.csv"
-                            with open(csv_path, "wb") as f:
-                                f.write(resp.content)
-
-                            st.success("✓ CSV 已下載,正在匯入...")
-                            with st.spinner("更新資料庫 (CSV)..."):
-                                data_access.import_shops_from_csv(overwrite=True)
-
-                    st.success("✅ 同步完成!")
-                    st.balloons()
-                except Exception as e:
-                    st.error(f"同步失敗: {e}")
+                    st.error(f"❌ Export failed: {e}")
+        
+        st.markdown("---")
+        
+        # Danger zone
+        with st.expander("⚠️ Danger Zone", expanded=False):
+            st.error("**Warning: These actions cannot be undone!**")
+            
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                if st.button("🗑️ Clear All Schedules", use_container_width=True):
+                    try:
+                        with data_access.get_db_connection() as conn:
+                            cur = conn.cursor()
+                            cur.execute("DELETE FROM schedule;")
+                        st.success("✅ All schedules cleared")
+                    except Exception as e:
+                        st.error(f"❌ Failed: {e}")
+            
+            with col2:
+                if st.button("🔄 Reset Database", use_container_width=True):
+                    st.warning("⚠️ This will delete ALL data!")
+                    if st.button("⚠️ Confirm Reset"):
+                        try:
+                            import os
+                            if data_access.DB_PATH.exists():
+                                os.remove(data_access.DB_PATH)
+                            data_access.init_db()
+                            st.success("✅ Database reset")
+                        except Exception as e:
+                            st.error(f"❌ Failed: {e}")

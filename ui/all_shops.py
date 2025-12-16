@@ -2,61 +2,86 @@
 
 import streamlit as st
 import pandas as pd
-from core import data_access
+from core import data_access, map_visualizer
+
 
 def render():
     """Render the All Shops page."""
     st.subheader("🏪 All Shops")
     
     # ========== Filters ==========
-    col1, col2, col3 = st.columns(3)
+    st.markdown("### 🔍 Filters")
+    
+    col1, col2, col3, col4 = st.columns(4)
     
     with col1:
         # Region filter
         with data_access.get_db_connection() as conn:
             cur = conn.cursor()
-            # ✅ 修正：改用 region
             cur.execute("""
                 SELECT DISTINCT region 
                 FROM shop_master 
                 WHERE region IS NOT NULL 
                 ORDER BY region
             """)
-            regions = ["All"] + [row[0] for row in cur.fetchall()]
+            regions = [row[0] for row in cur.fetchall()]
         
-        selected_region = st.selectbox(
+        region_map = {
+            "HK": "Hong Kong Island",
+            "KN": "Kowloon",
+            "NT": "New Territories",
+            "IS": "Islands",
+            "MO": "Macau"
+        }
+        
+        region_display = [region_map.get(r, r) for r in regions]
+        
+        selected_regions_display = st.multiselect(
             "Region",
-            options=regions,
-            key="all_shops_region"
+            options=["All"] + region_display,
+            default=["All"]
         )
+        
+        reverse_map = {v: k for k, v in region_map.items()}
+        
+        if "All" in selected_regions_display:
+            selected_regions = None
+        else:
+            selected_regions = [reverse_map.get(r, r) for r in selected_regions_display]
     
     with col2:
         # District filter
-        with data_access.get_db_connection() as conn:
-            cur = conn.cursor()
-            # ✅ 修正：改用 district
-            if selected_region != "All":
-                cur.execute("""
-                    SELECT DISTINCT district 
-                    FROM shop_master 
-                    WHERE district IS NOT NULL AND region = ?
-                    ORDER BY district
-                """, (selected_region,))
-            else:
-                cur.execute("""
-                    SELECT DISTINCT district 
-                    FROM shop_master 
-                    WHERE district IS NOT NULL 
-                    ORDER BY district
-                """)
-            
-            districts = ["All"] + [row[0] for row in cur.fetchall()]
+        districts = []
+        try:
+            with data_access.get_db_connection() as conn:
+                cur = conn.cursor()
+                if selected_regions:
+                    placeholders = ','.join('?' * len(selected_regions))
+                    cur.execute(f"""
+                        SELECT DISTINCT district 
+                        FROM shop_master 
+                        WHERE region IN ({placeholders}) AND district IS NOT NULL
+                        ORDER BY district
+                    """, selected_regions)
+                else:
+                    cur.execute("""
+                        SELECT DISTINCT district 
+                        FROM shop_master 
+                        WHERE district IS NOT NULL
+                        ORDER BY district
+                    """)
+                districts = [row[0] for row in cur.fetchall()]
+        except:
+            districts = []
         
-        selected_district = st.selectbox(
+        selected_districts = st.multiselect(
             "District",
-            options=districts,
-            key="all_shops_district"
+            options=["All"] + districts,
+            default=["All"]
         )
+        
+        if "All" in selected_districts:
+            selected_districts = None
     
     with col3:
         # Brand filter
@@ -65,159 +90,192 @@ def render():
             cur.execute("""
                 SELECT DISTINCT brand 
                 FROM shop_master 
-                WHERE brand IS NOT NULL 
+                WHERE brand IS NOT NULL
                 ORDER BY brand
             """)
-            brands = ["All"] + [row[0] for row in cur.fetchall()]
+            brands = [row[0] for row in cur.fetchall()]
         
         selected_brand = st.selectbox(
             "Brand",
-            options=brands,
-            key="all_shops_brand"
+            options=["All"] + brands,
+            index=0
         )
     
-    # ========== Active Status Filter ==========
-    show_inactive = st.checkbox(
-        "Show inactive shops",
-        value=False,
-        key="show_inactive"
-    )
+    with col4:
+        # Active status filter
+        show_inactive = st.checkbox("Show inactive shops", value=False)
     
-    # ========== Search ==========
-    search_term = st.text_input(
-        "🔍 Search by Shop ID or Name",
-        placeholder="Enter shop code or name...",
-        key="shop_search"
-    )
-    
-    # ========== Query Database ==========
-    with data_access.get_db_connection() as conn:
-        cur = conn.cursor()
-        
-        # Build query
-        query = """
-            SELECT 
-                shop_id,
-                shop_name,
-                address,
-                region,
-                district,
-                brand,
-                is_mtr,
-                is_active,
-                lat,
-                lng,
-                phone
-            FROM shop_master
-            WHERE 1=1
-        """
-        params = []
-        
-        # Apply filters
-        if not show_inactive:
-            query += " AND is_active = 'Y'"
-        
-        if selected_region != "All":
-            # ✅ 修正：改用 region
-            query += " AND region = ?"
-            params.append(selected_region)
-        
-        if selected_district != "All":
-            # ✅ 修正：改用 district
-            query += " AND district = ?"
-            params.append(selected_district)
-        
-        if selected_brand != "All":
-            query += " AND brand = ?"
-            params.append(selected_brand)
-        
-        if search_term:
-            query += " AND (shop_id LIKE ? OR shop_name LIKE ?)"
-            params.append(f"%{search_term}%")
-            params.append(f"%{search_term}%")
-        
-        # ✅ 修正：ORDER BY 也要使用新欄位名稱
-        query += " ORDER BY region, district, shop_id"
-        
-        cur.execute(query, params)
-        rows = cur.fetchall()
+    # ========== Search Button ==========
+    if st.button("🔍 Search", type="primary"):
+        st.session_state['all_shops_searched'] = True
     
     # ========== Display Results ==========
-    if not rows:
-        st.info("📭 No shops found matching the filters")
-        return
-    
-    st.markdown(f"### 📊 Found {len(rows)} shop(s)")
-    
-    # Convert to DataFrame for display
-    df = pd.DataFrame(rows, columns=[
-        "Shop ID",
-        "Shop Name",
-        "Address",
-        "Region",
-        "District",
-        "Brand",
-        "MTR",
-        "Active",
-        "Latitude",
-        "Longitude",
-        "Phone"
-    ])
-    
-    # Format display
-    df["MTR"] = df["MTR"].apply(lambda x: "✅" if x == "Y" else "")
-    df["Active"] = df["Active"].apply(lambda x: "✅" if x == "Y" else "❌")
-    
-    # Display as table
-    st.dataframe(
-        df,
-        use_container_width=True,
-        hide_index=True,
-        column_config={
-            "Shop ID": st.column_config.TextColumn("Shop ID", width="small"),
-            "Shop Name": st.column_config.TextColumn("Shop Name", width="medium"),
-            "Address": st.column_config.TextColumn("Address", width="large"),
-            "Region": st.column_config.TextColumn("Region", width="small"),
-            "District": st.column_config.TextColumn("District", width="medium"),
-            "Brand": st.column_config.TextColumn("Brand", width="medium"),
-            "MTR": st.column_config.TextColumn("MTR", width="small"),
-            "Active": st.column_config.TextColumn("Active", width="small"),
-            "Latitude": st.column_config.NumberColumn("Lat", format="%.6f"),
-            "Longitude": st.column_config.NumberColumn("Lng", format="%.6f"),
-            "Phone": st.column_config.TextColumn("Phone", width="medium"),
-        }
-    )
-    
-    # ========== Summary Statistics ==========
-    st.markdown("---")
-    st.markdown("### 📈 Summary")
-    
-    col_stat1, col_stat2, col_stat3, col_stat4 = st.columns(4)
-    
-    with col_stat1:
-        st.metric("Total Shops", len(df))
-    
-    with col_stat2:
-        active_count = len(df[df["Active"] == "✅"])
-        st.metric("Active", active_count)
-    
-    with col_stat3:
-        mtr_count = len(df[df["MTR"] == "✅"])
-        st.metric("MTR Shops", mtr_count)
-    
-    with col_stat4:
-        # ✅ 欄位名稱已經是 "Region"，不需要修改
-        unique_regions = df["Region"].nunique()
-        st.metric("Regions", unique_regions)
-    
-    # ========== Export Option ==========
-    st.markdown("---")
-    
-    if st.button("📥 Export to CSV", key="export_csv"):
-        csv = df.to_csv(index=False)
-        st.download_button(
-            label="Download CSV",
-            data=csv,
-            file_name="shops_export.csv",
-            mime="text/csv"
-        )
+    if st.session_state.get('all_shops_searched', False):
+        with st.spinner("Loading shops..."):
+            try:
+                # Build query
+                with data_access.get_db_connection() as conn:
+                    cur = conn.cursor()
+                    
+                    query = "SELECT shop_id, shop_name, brand, region, district, address, lat, lng, is_mtr, phone, is_active, brand_icon_url FROM shop_master WHERE 1=1"
+                    params = []
+                    
+                    if not show_inactive:
+                        query += " AND is_active = 'Y'"
+                    
+                    if selected_regions:
+                        placeholders = ','.join('?' * len(selected_regions))
+                        query += f" AND region IN ({placeholders})"
+                        params.extend(selected_regions)
+                    
+                    if selected_districts:
+                        placeholders = ','.join('?' * len(selected_districts))
+                        query += f" AND district IN ({placeholders})"
+                        params.extend(selected_districts)
+                    
+                    if selected_brand != "All":
+                        query += " AND brand = ?"
+                        params.append(selected_brand)
+                    
+                    query += " ORDER BY region, district, shop_id"
+                    
+                    cur.execute(query, params)
+                    rows = cur.fetchall()
+                
+                if not rows:
+                    st.warning("No shops found")
+                    return
+                
+                # Convert to DataFrame
+                df = pd.DataFrame(rows, columns=[
+                    "Shop ID", "Shop Name", "Brand", "Region", "District", 
+                    "Address", "Lat", "Lng", "MTR", "Phone", "Active", "Brand Logo"
+                ])
+                
+                st.success(f"✅ Found {len(df)} shops")
+                
+                # ========== Map Display ==========
+                st.markdown("### 🗺️ Shop Locations")
+                
+                map_data = []
+                for _, row in df.iterrows():
+                    if pd.notna(row['Lat']) and pd.notna(row['Lng']):
+                        map_data.append({
+                            'shop_id': row['Shop ID'],
+                            'shop_name': row['Shop Name'],
+                            'brand': row['Brand'],
+                            'brand_icon_url': row['Brand Logo'] or '',
+                            'region': row['Region'],
+                            'district': row['District'],
+                            'address': row['Address'],
+                            'lat': float(row['Lat']),
+                            'lng': float(row['Lng']),
+                            'group_number': 1,
+                            'status': 'Active' if row['Active'] == 'Y' else 'Inactive'
+                        })
+                
+                if map_data:
+                    try:
+                        deck = map_visualizer.create_route_map(
+                            schedule_data=map_data,
+                            date_str="All Shops",
+                            show_route_lines=False,
+                            show_labels=False,
+                            selected_groups=None,
+                            map_style="light"
+                        )
+                        if deck:
+                            st.pydeck_chart(deck, use_container_width=True)
+                    except Exception as e:
+                        st.error(f"Map error: {e}")
+                
+                st.markdown("---")
+                
+                # ========== Data Table ==========
+                st.markdown("### 📋 Shop List")
+                
+                # Display with logo column
+                display_df = df[["Brand Logo", "Shop ID", "Shop Name", "Brand", "Region", "District", "Address", "Phone", "Active"]]
+                
+                st.dataframe(
+                    display_df,
+                    use_container_width=True,
+                    column_config={
+                        "Brand Logo": st.column_config.ImageColumn(
+                            "Logo",
+                            width="small"
+                        ),
+                        "Active": st.column_config.TextColumn(
+                            "Status"
+                        )
+                    },
+                    hide_index=True
+                )
+                
+                # Download button
+                csv = df.to_csv(index=False)
+                st.download_button(
+                    "📥 Download CSV",
+                    csv,
+                    file_name="all_shops.csv",
+                    mime="text/csv"
+                )
+                
+                st.markdown("---")
+                
+                # ========== STATISTICS ==========
+                st.markdown("### 📊 Statistics")
+                
+                col_stat1, col_stat2, col_stat3 = st.columns(3)
+                
+                with col_stat1:
+                    st.metric("Total Shops", len(df))
+                
+                with col_stat2:
+                    active_count = len(df[df['Active'] == 'Y'])
+                    st.metric("Active Shops", active_count)
+                
+                with col_stat3:
+                    mtr_count = len(df[df['MTR'] == 'Y'])
+                    st.metric("MTR Shops", mtr_count)
+                
+                # Brand breakdown with logos
+                st.markdown("---")
+                st.markdown("### 🏢 Brand Breakdown")
+                
+                brand_counts = df['Brand'].value_counts()
+                
+                # Get brand logos
+                brand_logos = {}
+                for _, row in df.iterrows():
+                    brand = row['Brand']
+                    if brand not in brand_logos and pd.notna(row['Brand Logo']):
+                        brand_logos[brand] = row['Brand Logo']
+                
+                # Display in columns (max 6 per row)
+                num_brands = len(brand_counts)
+                rows_needed = (num_brands + 5) // 6
+                
+                for row_idx in range(rows_needed):
+                    cols = st.columns(6)
+                    start_idx = row_idx * 6
+                    end_idx = min(start_idx + 6, num_brands)
+                    
+                    for col_idx, (brand, count) in enumerate(list(brand_counts.items())[start_idx:end_idx]):
+                        with cols[col_idx]:
+                            logo_url = brand_logos.get(brand, '')
+                            if logo_url and logo_url.startswith('http'):
+                                try:
+                                    st.image(logo_url, width=60)
+                                except:
+                                    st.markdown(f"**{brand}**")
+                            else:
+                                st.markdown(f"**{brand}**")
+                            
+                            st.metric("", count, label_visibility="collapsed")
+                
+            except Exception as e:
+                st.error(f"❌ Error: {str(e)}")
+                import traceback
+                with st.expander("Error details"):
+                    st.code(traceback.format_exc())
