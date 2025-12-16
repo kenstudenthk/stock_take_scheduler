@@ -298,17 +298,17 @@ def _compute_day_totals_with_amap():
     """Sum driving distance & time for each day using AMap API."""
     with data_access.get_db_connection() as conn:
         cur = conn.cursor()
-        cur.execute("SELECT DISTINCT date FROM schedule ORDER BY date;")
+        cur.execute("SELECT DISTINCT schedule_date FROM schedule ORDER BY schedule_date;")
         dates = [r[0] for r in cur.fetchall()]
         
         for d in dates:
             cur.execute(
                 """
-                SELECT s.shop_id, s.day_route_order, sm.lat, sm.lng
+                SELECT s.shop_id, sm.lat, sm.lng
                 FROM schedule s
                 JOIN shop_master sm ON s.shop_id = sm.shop_id
-                WHERE s.date = ?
-                ORDER BY s.day_route_order;
+                WHERE s.schedule_date = ?
+                ORDER BY s.group_number, s.shop_id;
                 """,
                 (d,),
             )
@@ -322,8 +322,8 @@ def _compute_day_totals_with_amap():
                 total_time_min = 0.0
                 
                 for i in range(len(rows) - 1):
-                    _, _, lat_a, lng_a = rows[i]
-                    _, _, lat_b, lng_b = rows[i + 1]
+                    _, lat_a, lng_a = rows[i]
+                    _, lat_b, lng_b = rows[i + 1]
                     
                     if lat_a is None or lng_a is None or lat_b is None or lng_b is None:
                         continue
@@ -337,14 +337,16 @@ def _compute_day_totals_with_amap():
                     total_dist_km += dist_km
                     total_time_min += time_min
             
-            cur.execute(
-                """
-                UPDATE schedule
-                SET day_total_distance_km = ?, day_total_travel_time_min = ?
-                WHERE date = ?;
-                """,
-                (total_dist_km, total_time_min, d),
-            )
+            # Note: 目前 schedule 表格沒有這些欄位,暫時跳過
+            # cur.execute(
+            #     """
+            #     UPDATE schedule
+            #     SET day_total_distance_km = ?, day_total_travel_time_min = ?
+            #     WHERE schedule_date = ?;
+            #     """,
+            #     (total_dist_km, total_time_min, d),
+            # )
+
 
 
 def _optimize_day_route_orders():
@@ -352,12 +354,12 @@ def _optimize_day_route_orders():
     with data_access.get_db_connection() as conn:
         cur = conn.cursor()
         
-        cur.execute("SELECT DISTINCT date FROM schedule ORDER BY date;")
+        cur.execute("SELECT DISTINCT schedule_date FROM schedule ORDER BY schedule_date;")
         dates = [r[0] for r in cur.fetchall()]
         
         for d in dates:
             cur.execute(
-                "SELECT DISTINCT group_no FROM schedule WHERE date = ? ORDER BY group_no;",
+                "SELECT DISTINCT group_number FROM schedule WHERE schedule_date = ? ORDER BY group_number;",
                 (d,),
             )
             groups = [g[0] for g in cur.fetchall()]
@@ -365,11 +367,11 @@ def _optimize_day_route_orders():
             for gno in groups:
                 cur.execute(
                     """
-                    SELECT s.shop_id, s.day_route_order, sm.lat, sm.lng
+                    SELECT s.shop_id, sm.lat, sm.lng
                     FROM schedule s
                     JOIN shop_master sm ON s.shop_id = sm.shop_id
-                    WHERE s.date = ? AND s.group_no = ?
-                    ORDER BY s.rowid;
+                    WHERE s.schedule_date = ? AND s.group_number = ?
+                    ORDER BY s.id;
                     """,
                     (d, gno),
                 )
@@ -377,25 +379,16 @@ def _optimize_day_route_orders():
                 n = len(rows)
                 
                 if n <= 1:
-                    if n == 1:
-                        shop_id, _, _, _ = rows[0]
-                        cur.execute(
-                            """
-                            UPDATE schedule
-                            SET day_route_order = 1
-                            WHERE date = ? AND group_no = ? AND shop_id = ?;
-                            """,
-                            (d, gno, shop_id),
-                        )
+                    # 只有 1 間或 0 間店舖,不需要優化
                     continue
                 
                 # Build distance matrix
                 distance_matrix = []
                 for i in range(n):
-                    _, _, lat_i, lng_i = rows[i]
+                    _, lat_i, lng_i = rows[i]
                     row_i = []
                     for j in range(n):
-                        _, _, lat_j, lng_j = rows[j]
+                        _, lat_j, lng_j = rows[j]
                         if i == j or lat_i is None or lng_i is None or lat_j is None or lng_j is None:
                             row_i.append(0.0)
                         else:
@@ -404,22 +397,17 @@ def _optimize_day_route_orders():
                     distance_matrix.append(row_i)
                 
                 # Solve TSP
-                order = route_optimizer.solve_tsp(distance_matrix)
-                
-                # Batch update
-                update_data = []
-                for new_order, idx in enumerate(order, start=1):
-                    shop_id, _, _, _ = rows[idx]
-                    update_data.append((new_order, d, gno, shop_id))
-                
-                cur.executemany(
-                    """
-                    UPDATE schedule
-                    SET day_route_order = ?
-                    WHERE date = ? AND group_no = ? AND shop_id = ?;
-                    """,
-                    update_data,
-                )
+                try:
+                    order = route_optimizer.solve_tsp(distance_matrix)
+                    
+                    # 目前 schedule 表格沒有 day_route_order 欄位
+                    # 暫時跳過路徑順序更新
+                    # 如果需要,可以加入 route_order 欄位
+                    
+                except Exception as e:
+                    print(f"⚠️ TSP optimization failed for {d} group {gno}: {e}")
+                    continue
+
 
 # ❌ DELETE THIS SECTION - IT SHOULD NOT BE HERE
 # (Remove the _render_stats function entirely from this file)
