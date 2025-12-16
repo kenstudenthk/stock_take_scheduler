@@ -2,7 +2,9 @@
 
 import streamlit as st
 import pandas as pd
-from core import data_access, map_visualizer
+from core import data_access
+from core import folium_map
+from streamlit_folium import st_folium
 
 
 def render():
@@ -154,7 +156,7 @@ def render():
                 
                 st.success(f"✅ Found {len(df)} shops")
                 
-                # ========== Map Display ==========
+                # ========== Map Display (使用 Folium) ==========
                 st.markdown("### 🗺️ Shop Locations")
                 
                 map_data = []
@@ -176,25 +178,29 @@ def render():
                 
                 if map_data:
                     try:
-                        deck = map_visualizer.create_route_map(
+                        folium_map_obj = folium_map.create_route_map_folium(
                             schedule_data=map_data,
                             date_str="All Shops",
                             show_route_lines=False,
-                            show_labels=False,
-                            selected_groups=None,
-                            map_style="light"
+                            selected_groups=None
                         )
-                        if deck:
-                            st.pydeck_chart(deck, use_container_width=True)
+                        
+                        st_folium(
+                            folium_map_obj,
+                            width=None,
+                            height=500,
+                            returned_objects=[]
+                        )
                     except Exception as e:
                         st.error(f"Map error: {e}")
+                        import traceback
+                        st.code(traceback.format_exc())
                 
                 st.markdown("---")
                 
                 # ========== Data Table ==========
                 st.markdown("### 📋 Shop List")
                 
-                # Display with logo column
                 display_df = df[["Brand Logo", "Shop ID", "Shop Name", "Brand", "Region", "District", "Address", "Phone", "Active"]]
                 
                 st.dataframe(

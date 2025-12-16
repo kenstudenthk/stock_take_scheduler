@@ -1,7 +1,9 @@
 # ui/view_schedule.py
 import datetime
 import streamlit as st
-from core import data_access, map_visualizer
+from core import data_access
+from core import folium_map
+from streamlit_folium import st_folium
 
 
 def render():
@@ -53,11 +55,10 @@ def render():
             st.rerun()
 
     # ========== Perform search ==========
-    if search_clicked or not st.session_state.view_schedule_searched:
+    if search_clicked or st.session_state.view_schedule_searched:
         st.session_state.view_schedule_searched = True
 
         with st.spinner("Searching..."):
-            # ✅ 修正: 只在勾選時使用日期篩選
             date_str = date_val.isoformat() if use_date else None
 
             try:
@@ -76,42 +77,55 @@ def render():
                     st.warning("No records found")
                     return
 
-                # ========== Map + Table ==========
-                col_map, col_table = st.columns([2, 3])
+                st.success(f"✅ Found {len(rows)} records")
 
-                with col_map:
-                    st.markdown("#### 📍 Map")
-                    
-                    # Prepare map data
-                    map_data = []
-                    for r in rows:
-                        if r.get('lat') and r.get('lng'):
-                            map_data.append({
-                                'shop_id': r.get('shop_id', ''),
-                                'shop_name': r.get('shop_name', ''),
-                                'brand': r.get('brand', ''),
-                                'brand_icon_url': r.get('brand_icon_url', ''),
-                                'region': r.get('region', ''),
-                                'district': r.get('district', ''),
-                                'address': r.get('address', ''),
-                                'lat': float(r.get('lat')),
-                                'lng': float(r.get('lng')),
-                                'group_number': 1,
-                                'status': r.get('status', 'Planned')
-                            })
-                    
-                    if map_data:
-                        deck = map_visualizer.create_route_map(
-                            map_data,
-                            date_str or "Schedule",
-                            show_route_lines=False,
-                            show_labels=False,
-                            selected_groups=None,
-                            map_style="light",
+                # ========== Map Display (使用 Folium) ==========
+                st.markdown("### 📍 Shop Locations")
+                
+                # Prepare map data
+                map_data = []
+                for r in rows:
+                    if r.get('lat') and r.get('lng'):
+                        map_data.append({
+                            'shop_id': r.get('shop_id', ''),
+                            'shop_name': r.get('shop_name', ''),
+                            'brand': r.get('brand', ''),
+                            'brand_icon_url': r.get('brand_icon_url', ''),
+                            'region': r.get('region', ''),
+                            'district': r.get('district', ''),
+                            'address': r.get('address', ''),
+                            'lat': float(r.get('lat')),
+                            'lng': float(r.get('lng')),
+                            'group_number': 1,  # Single group for search results
+                            'status': r.get('status', 'Planned'),
+                            'schedule_date': r.get('schedule_date', '')
+                        })
+                
+                if map_data:
+                    try:
+                        folium_map_obj = folium_map.create_route_map_folium(
+                            schedule_data=map_data,
+                            date_str=date_str or "Search Results",
+                            show_route_lines=False,  # No routes for search results
+                            selected_groups=None
                         )
-                        st.pydeck_chart(deck, use_container_width=True)
+                        
+                        st_folium(
+                            folium_map_obj,
+                            width=None,
+                            height=500,
+                            returned_objects=[]
+                        )
+                    except Exception as e:
+                        st.error(f"Map error: {e}")
+                        import traceback
+                        st.code(traceback.format_exc())
 
-                # ========== Table ==========
+                st.markdown("---")
+
+                # ========== Data Table ==========
+                st.markdown("### 📋 Shop List")
+                
                 display_rows = []
                 for r in rows:
                     display_rows.append({
@@ -126,64 +140,62 @@ def render():
                         "Address": r.get("address") or "",
                     })
 
-                with col_table:
-                    st.success(f"✓ Found {len(display_rows)} records")
+                st.dataframe(
+                    display_rows,
+                    use_container_width=True,
+                    column_config={
+                        "Logo": st.column_config.ImageColumn(
+                            "Logo",
+                            width="small"
+                        ),
+                        "Status": st.column_config.TextColumn("Status"),
+                        "Date": st.column_config.TextColumn("Date"),
+                    },
+                    hide_index=True
+                )
 
-                    st.dataframe(
-                        display_rows,
-                        use_container_width=True,
-                        column_config={
-                            "Logo": st.column_config.ImageColumn(
-                                "Logo",
-                                width="small"
-                            ),
-                            "Status": st.column_config.TextColumn("Status"),
-                            "Date": st.column_config.DateColumn("Date"),
-                        },
-                    )
+                st.download_button(
+                    "📥 Download CSV",
+                    _rows_to_csv(display_rows),
+                    file_name=f"schedule_{date_str or 'all'}.csv",
+                    mime="text/csv",
+                    use_container_width=True,
+                )
 
-                    st.download_button(
-                        "📥 Download CSV",
-                        _rows_to_csv(display_rows),
-                        file_name=f"schedule_{date_str or 'all'}.csv",
-                        mime="text/csv",
-                        use_container_width=True,
-                    )
+                # ========== Statistics ==========
+                with st.expander("📊 Statistics", expanded=True):
+                    status_counts = {}
+                    region_counts = {}
+                    brand_counts = {}
 
-                    # Statistics
-                    with st.expander("📊 Statistics", expanded=True):
-                        status_counts = {}
-                        region_counts = {}
-                        brand_counts = {}
-
-                        for row in display_rows:
-                            s = row["Status"] or "Unknown"
-                            rgn = row["Region"] or "Unknown"
-                            brand = row.get("Brand", "Unknown") or "Unknown"
-                            
-                            status_counts[s] = status_counts.get(s, 0) + 1
-                            region_counts[rgn] = region_counts.get(rgn, 0) + 1
-                            brand_counts[brand] = brand_counts.get(brand, 0) + 1
-
-                        col_s1, col_s2, col_s3 = st.columns(3)
+                    for row in display_rows:
+                        s = row["Status"] or "Unknown"
+                        rgn = row["Region"] or "Unknown"
+                        brand = row.get("Brand", "Unknown") or "Unknown"
                         
-                        with col_s1:
-                            st.markdown("**By Status:**")
-                            for s, cnt in sorted(status_counts.items()):
-                                st.metric(s, cnt)
+                        status_counts[s] = status_counts.get(s, 0) + 1
+                        region_counts[rgn] = region_counts.get(rgn, 0) + 1
+                        brand_counts[brand] = brand_counts.get(brand, 0) + 1
+
+                    col_s1, col_s2, col_s3 = st.columns(3)
+                    
+                    with col_s1:
+                        st.markdown("**By Status:**")
+                        for s, cnt in sorted(status_counts.items()):
+                            st.metric(s, cnt)
+                    
+                    with col_s2:
+                        st.markdown("**By Region:**")
+                        for rgn, cnt in sorted(region_counts.items()):
+                            st.metric(rgn, cnt)
+                    
+                    with col_s3:
+                        st.markdown("**By Brand (Top 5):**")
+                        for brand, cnt in sorted(brand_counts.items(), key=lambda x: -x[1])[:5]:
+                            st.metric(brand, cnt)
                         
-                        with col_s2:
-                            st.markdown("**By Region:**")
-                            for rgn, cnt in sorted(region_counts.items()):
-                                st.metric(rgn, cnt)
-                        
-                        with col_s3:
-                            st.markdown("**By Brand:**")
-                            for brand, cnt in sorted(brand_counts.items(), key=lambda x: -x[1])[:5]:
-                                st.metric(brand, cnt)
-                            
-                            if len(brand_counts) > 5:
-                                st.caption(f"...and {len(brand_counts) - 5} more")
+                        if len(brand_counts) > 5:
+                            st.caption(f"...and {len(brand_counts) - 5} more")
 
             except Exception as e:
                 st.error(f"Error: {str(e)}")

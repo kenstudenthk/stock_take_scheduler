@@ -144,6 +144,36 @@ def create_route_map_folium(
         primary_area_unit='hectares'
     ).add_to(m)
     
+    # core/folium_map.py (在 return m 之前添加)
+
+    # Add custom legend
+    legend_html = '''
+    <div style="position: fixed; 
+                bottom: 50px; right: 50px; width: 200px; height: auto;
+                background-color: white; z-index:9999; font-size:14px;
+                border:2px solid grey; border-radius: 5px; padding: 10px;
+                box-shadow: 0 0 15px rgba(0,0,0,0.2);">
+        <p style="margin: 0 0 10px 0; font-weight: bold; text-align: center;">
+            📍 Legend
+        </p>
+    '''
+    
+    for i, (group_no, shops) in enumerate(groups.items()):
+        color = GROUP_COLORS[(group_no - 1) % len(GROUP_COLORS)]
+        legend_html += f'''
+        <p style="margin: 5px 0;">
+            <span style="background-color: {color}; 
+                         width: 20px; height: 20px; 
+                         display: inline-block; 
+                         border-radius: 3px;
+                         margin-right: 5px;"></span>
+            Group {group_no} <span style="color: #666;">({len(shops)})</span>
+        </p>
+        '''
+    
+    legend_html += '</div>'
+    m.get_root().html.add_child(folium.Element(legend_html))
+    
     return m
 
 
