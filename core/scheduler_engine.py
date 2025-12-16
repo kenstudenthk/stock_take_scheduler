@@ -241,18 +241,10 @@ def generate_schedule(
     # ========== Phase 7: Optional distance calculation ==========
     if include_distance:
         print("🗺️ Calculating distances with AMap API...")
+    try:
         _compute_day_totals_with_amap()
-    else:
-        with data_access.get_db_connection() as conn:
-            cur = conn.cursor()
-            cur.execute(
-                """
-                UPDATE schedule
-                SET day_total_distance_km = 0.0,
-                    day_total_travel_time_min = 0.0;
-                """
-            )
-    
+    except Exception as e:
+        print(f"⚠️ Distance calculation failed: {e}")
     # ========== Calculate statistics ==========
    
     region_counts = {"HK": 0, "KN": 0, "NT": 0, "IS": 0, "MO": 0}
