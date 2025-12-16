@@ -82,18 +82,19 @@ def render():
         with st.expander(f"🏪 Group {group_num} ({len(group_df)} shops)", expanded=True):
             
             for idx, row in group_df.iterrows():
-                col_logo, col1, col2, col3 = st.columns([0.5, 2.5, 1, 1])
+                col_logo, col1, col2, col3 = st.columns([0.8, 2.2, 1, 1])  # ✅ 增加 Logo 欄位寬度
                 
                 with col_logo:
                     # Display brand logo
                     logo_url = row.get('brand_icon_url', '')
                     if logo_url and logo_url.startswith('http'):
                         try:
-                            st.image(logo_url, width=40)
+                            st.image(logo_url, width=80)  # ✅ 從 40 增加到 80
                         except:
                             st.markdown("🏪")
                     else:
                         st.markdown("🏪")
+
                 
                 with col1:
                     # Shop info
