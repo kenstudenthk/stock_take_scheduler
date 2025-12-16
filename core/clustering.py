@@ -184,7 +184,9 @@ def _split_large_cluster(
     shop_ids: List[str],
     shops: List[dict],
     max_size: int,
-    min_size: int = 2
+    min_size: int = 2,
+    depth: int = 0,
+    max_depth: int = 10
 ) -> List[List[str]]:
     """
     Split a large cluster into smaller ones using K-Means clustering.
@@ -194,10 +196,25 @@ def _split_large_cluster(
         shops: Full list of shop dictionaries
         max_size: Maximum size per sub-cluster
         min_size: Minimum size per sub-cluster
+        depth: Current recursion depth (internal use)
+        max_depth: Maximum recursion depth to prevent infinite loops
         
     Returns:
         List of sub-clusters
     """
+    # ✅ 終止條件 1: 達到最大遞迴深度
+    if depth >= max_depth:
+        print(f"⚠️ Max recursion depth reached at depth {depth}, returning cluster as-is")
+        return [shop_ids]
+    
+    # ✅ 終止條件 2: 集群已經夠小
+    if len(shop_ids) <= max_size:
+        return [shop_ids]
+    
+    # ✅ 終止條件 3: 集群太小無法分割
+    if len(shop_ids) < 2:
+        return [shop_ids]
+    
     # Build shop_id -> shop dict mapping
     shop_dict = {s['shop_id']: s for s in shops}
     
@@ -211,35 +228,61 @@ def _split_large_cluster(
             coords.append([shop['lat'], shop['lng']])
             valid_ids.append(sid)
     
+    # ✅ 終止條件 4: 沒有有效座標
+    if len(valid_ids) == 0:
+        return []
+    
     if len(valid_ids) <= max_size:
         return [valid_ids]
     
     # Calculate number of clusters needed
     n_clusters = math.ceil(len(valid_ids) / max_size)
-    n_clusters = max(2, n_clusters)  # At least 2 clusters
+    n_clusters = max(2, min(n_clusters, len(valid_ids)))  # ✅ 確保不超過店舖數量
     
-    # Apply K-Means
-    coords_array = np.array(coords)
-    kmeans = KMeans(n_clusters=n_clusters, random_state=42, n_init=10)
-    labels = kmeans.fit_predict(coords_array)
+    # ✅ 終止條件 5: 無法進一步分割
+    if n_clusters < 2:
+        return [valid_ids]
     
-    # Group by cluster label
-    sub_clusters = [[] for _ in range(n_clusters)]
-    for sid, label in zip(valid_ids, labels):
-        sub_clusters[label].append(sid)
-    
-    # Filter out empty clusters
-    sub_clusters = [sc for sc in sub_clusters if len(sc) >= min_size]
-    
-    # If splitting resulted in clusters that are still too large, recursively split
-    final_clusters = []
-    for sc in sub_clusters:
-        if len(sc) > max_size:
-            final_clusters.extend(_split_large_cluster(sc, shops, max_size, min_size))
-        else:
-            final_clusters.append(sc)
-    
-    return final_clusters
+    try:
+        # Apply K-Means
+        coords_array = np.array(coords)
+        kmeans = KMeans(n_clusters=n_clusters, random_state=42, n_init=10)
+        labels = kmeans.fit_predict(coords_array)
+        
+        # Group by cluster label
+        sub_clusters = [[] for _ in range(n_clusters)]
+        for sid, label in zip(valid_ids, labels):
+            sub_clusters[label].append(sid)
+        
+        # Filter out empty clusters
+        sub_clusters = [sc for sc in sub_clusters if len(sc) > 0]
+        
+        # ✅ 檢查分割是否有效 (避免無限遞迴)
+        if len(sub_clusters) == 1 or max(len(sc) for sc in sub_clusters) >= len(valid_ids):
+            # 分割無效,直接返回
+            print(f"⚠️ K-Means split ineffective at depth {depth}, returning as-is")
+            return [valid_ids]
+        
+        # If splitting resulted in clusters that are still too large, recursively split
+        final_clusters = []
+        for sc in sub_clusters:
+            if len(sc) > max_size and len(sc) < len(valid_ids):  # ✅ 確保有進展
+                # ✅ 傳遞 depth + 1
+                final_clusters.extend(
+                    _split_large_cluster(sc, shops, max_size, min_size, depth + 1, max_depth)
+                )
+            else:
+                final_clusters.append(sc)
+        
+        return final_clusters
+        
+    except Exception as e:
+        # ✅ 如果 K-Means 失敗,降級處理
+        print(f"⚠️ K-Means failed at depth {depth}: {e}")
+        # 簡單分割成相等大小的子集群
+        chunk_size = max_size
+        return [valid_ids[i:i+chunk_size] for i in range(0, len(valid_ids), chunk_size)]
+
 
 
 def calculate_cluster_quality(
