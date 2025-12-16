@@ -1,9 +1,11 @@
-# ui/today_schedule.py
+# ui/today_schedule.py (只修改地圖顯示部分)
 
 import streamlit as st
 import pandas as pd
 from datetime import date, timedelta
-from core import data_access, holidays, map_visualizer
+from core import data_access, holidays
+from core import folium_map  # ✅ 改用 folium_map
+from streamlit_folium import st_folium  # ✅ 新增
 
 
 def render():
@@ -50,23 +52,26 @@ def render():
     
     st.markdown(f"### 📊 Total: {len(filtered_data)} shops in {len(selected_groups) if selected_groups else len(unique_groups)} groups")
     
-    # ========== MAP DISPLAY ==========
+    # ========== MAP DISPLAY (使用 Folium) ==========
     st.markdown("### 🗺️ Route Map")
     
     try:
-        deck = map_visualizer.create_route_map(
+        # ✅ 使用 Folium 地圖
+        folium_map_obj = folium_map.create_route_map_folium(
             schedule_data=filtered_data,
             date_str=selected_date.isoformat(),
             show_route_lines=True,
-            show_labels=True,
-            selected_groups=selected_groups,
-            map_style="light"
+            selected_groups=selected_groups
         )
         
-        if deck:
-            st.pydeck_chart(deck, use_container_width=True)
-        else:
-            st.warning("⚠️ No map data available")
+        # ✅ 顯示 Folium 地圖
+        st_folium(
+            folium_map_obj,
+            width=None,  # 自動寬度
+            height=600,
+            returned_objects=[]
+        )
+        
     except Exception as e:
         st.error(f"❌ Map display error: {e}")
         import traceback
@@ -74,7 +79,7 @@ def render():
     
     st.markdown("---")
     
-    # ========== SHOP LIST BY GROUP ==========
+    # ========== SHOP LIST BY GROUP (保持不變) ==========
     df_filtered = df[df['group_number'].isin(selected_groups)] if selected_groups else df
     groups = df_filtered.groupby("group_number")
     
@@ -82,27 +87,23 @@ def render():
         with st.expander(f"🏪 Group {group_num} ({len(group_df)} shops)", expanded=True):
             
             for idx, row in group_df.iterrows():
-                col_logo, col1, col2, col3 = st.columns([0.8, 2.2, 1, 1])  # ✅ 增加 Logo 欄位寬度
+                col_logo, col1, col2, col3 = st.columns([0.8, 2.2, 1, 1])
                 
                 with col_logo:
-                    # Display brand logo
                     logo_url = row.get('brand_icon_url', '')
                     if logo_url and logo_url.startswith('http'):
                         try:
-                            st.image(logo_url, width=80)  # ✅ 從 40 增加到 80
+                            st.image(logo_url, width=80)  # ✅ 已改為 80px
                         except:
                             st.markdown("🏪")
                     else:
                         st.markdown("🏪")
-
                 
                 with col1:
-                    # Shop info
                     st.markdown(f"**{row['shop_name']}** ({row['shop_id']})")
                     st.caption(f"📍 {row['address']} | 🏢 {row['brand']}")
                 
                 with col2:
-                    # Status indicator
                     status = row.get('status', 'Planned')
                     if status == 'Done':
                         st.success("✅ Done")
@@ -114,7 +115,6 @@ def render():
                         st.info("📋 Planned")
                 
                 with col3:
-                    # Action buttons
                     if status != 'Done' and status != 'Closed':
                         if st.button("✅", key=f"done_{row['shop_id']}_{selected_date}", help="Mark as Done"):
                             _mark_as_done(row['shop_id'], selected_date.isoformat())
@@ -124,6 +124,10 @@ def render():
                         
                         if st.button("📅", key=f"reschedule_{row['shop_id']}_{selected_date}", help="Reschedule"):
                             _show_reschedule_dialog(row['shop_id'], row['shop_name'], selected_date.isoformat())
+
+
+# ... (其餘函式保持不變)
+
 
 
 def _mark_as_done(shop_id: str, schedule_date: str):
