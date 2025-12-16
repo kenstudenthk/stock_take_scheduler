@@ -18,19 +18,19 @@ def render():
 
     with col1:
         date_val = st.date_input(
-        "Date",
-        value=datetime.date.today(),
-        help="Filter by schedule date.",
-        key="view_date",   # ✅ 唯一 key
-    )
+            "Date",
+            value=datetime.date.today(),
+            help="Filter by schedule date.",
+            key="view_date",   # ✅ 唯一 key
+        )
         use_date = st.checkbox("Use date filter", value=True, key="view_use_date")
 
     with col2:
         shop_id = st.text_input(
-        "Shop ID",
-        help="Exact shop ID match",
-        key="view_shop_id",
-    ).strip()
+            "Shop ID",
+            help="Exact shop ID match",
+            key="view_shop_id",
+        ).strip()
 
     with col3:
         region = st.selectbox(
@@ -43,10 +43,10 @@ def render():
 
     with col4:
         district = st.text_input(
-        "District (partial match)",
-        help="Enter partial district name",
-        key="view_district",
-    ).strip()
+            "District (partial match)",
+            help="Enter partial district name",
+            key="view_district",
+        ).strip()
 
     status = st.multiselect(
         "Status",
@@ -84,12 +84,16 @@ def render():
             date_str = date_val.isoformat() if use_date else None
 
             try:
-                # 呼叫 data_access.search_schedule
-                rows = data_access.search_schedule(
+                # ✅ 修正：使用 search_shops 而不是 search_schedule
+                # 準備參數
+                regions_param = [region] if region and region != "All" else None
+                districts_param = [district] if district else None
+                
+                rows = data_access.search_shops(
                     date=date_str,
                     shop_id=shop_id or None,
-                    region=region,
-                    district=district or None,
+                    regions=regions_param,
+                    districts=districts_param,
                     status=status or None,
                 )
 
@@ -101,7 +105,7 @@ def render():
                 col_map, col_table = st.columns([2, 3])
 
                 with col_map:
-                    st.markdown("#### Map (filtered shops)")
+                    st.markdown("#### 📍 Map (filtered shops)")
                     deck = map_visualizer.create_route_map(
                         rows,
                         date_str or "Schedule",
@@ -117,13 +121,13 @@ def render():
                 for r in rows:
                     display_rows.append(
                         {
-                            "Date": r["date"],
-                            "Shop ID": r["shop_id"],
-                            "Shop Name": r["shop_name"],
-                            "Status": r["status"],
-                            "Region": r["region_code"],
-                            "District": r["district_en"],
-                            "Address (ZH)": r["address_zh"],
+                            "Date": r.get("schedule_date") or r.get("date", ""),
+                            "Shop ID": r.get("shop_id", ""),
+                            "Shop Name": r.get("shop_name", ""),
+                            "Status": r.get("status", "Planned"),
+                            "Region": r.get("region") or r.get("region_code", ""),
+                            "District": r.get("district") or r.get("district_en", ""),
+                            "Address": r.get("address") or r.get("address_zh", ""),
                             "Status Reason": r.get("status_reason", "") or "",
                         }
                     )
