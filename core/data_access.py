@@ -459,7 +459,7 @@ def import_shops_from_json(json_data: list, overwrite: bool = True):
         "district_en":  ["field_16", "District"],     # Choice 欄位
         "brand":        ["field_11", "Brand"],        # Choice 欄位
         "business_unit":["BusinessUnit", "business_unit"],
-        "brand_icon_url": ["field_23", "Brandicon"],
+        "brand_icon_url": ["Brand_Logo", "field_23", "Brandicon"],
         "lat":          ["field_20", "Latitude"],
         "lng":          ["field_21", "Longitude"],
         "is_active":    ["field_35", "Available"],    # Choice 欄位
