@@ -233,18 +233,23 @@ def generate_schedule(
     unique_dates = sorted(set(a['date'] for a in assignments))
     business_days_used = len(unique_dates)
     finish_date = estimate_finish_date(start_date, business_days_used)
-    
+
     # ========== Phase 6: Optimize routes ==========
     print("🔄 Optimizing routes...")
     _optimize_day_route_orders()
-    
+
     # ========== Phase 7: Optional distance calculation ==========
     if include_distance:
         print("🗺️ Calculating distances with AMap API...")
-    try:
-        _compute_day_totals_with_amap()
-    except Exception as e:
-        print(f"⚠️ Distance calculation failed: {e}")
+        try:
+            _compute_day_totals_with_amap()
+        except Exception as e:
+            print(f"⚠️ Distance calculation failed: {e}")
+
+        try:
+            _compute_day_totals_with_amap()
+        except Exception as e:
+            print(f"⚠️ Distance calculation failed: {e}")
     # ========== Calculate statistics ==========
    
     region_counts = {"HK": 0, "KN": 0, "NT": 0, "IS": 0, "MO": 0}
@@ -290,6 +295,8 @@ def _compute_day_totals_with_amap():
     """Sum driving distance & time for each day using AMap API."""
     with data_access.get_db_connection() as conn:
         cur = conn.cursor()
+        
+        # ✅ 改為 schedule_date
         cur.execute("SELECT DISTINCT schedule_date FROM schedule ORDER BY schedule_date;")
         dates = [r[0] for r in cur.fetchall()]
         
@@ -300,26 +307,26 @@ def _compute_day_totals_with_amap():
                 FROM schedule s
                 JOIN shop_master sm ON s.shop_id = sm.shop_id
                 WHERE s.schedule_date = ?
-                ORDER BY s.group_number, s.shop_id;
+                ORDER BY s.group_number, s.id;
                 """,
                 (d,),
             )
             rows = cur.fetchall()
             
             if len(rows) <= 1:
-                total_dist_km = 0.0
-                total_time_min = 0.0
-            else:
-                total_dist_km = 0.0
-                total_time_min = 0.0
+                continue
+            
+            total_dist_km = 0.0
+            total_time_min = 0.0
+            
+            for i in range(len(rows) - 1):
+                _, lat_a, lng_a = rows[i]
+                _, lat_b, lng_b = rows[i + 1]
                 
-                for i in range(len(rows) - 1):
-                    _, lat_a, lng_a = rows[i]
-                    _, lat_b, lng_b = rows[i + 1]
-                    
-                    if lat_a is None or lng_a is None or lat_b is None or lng_b is None:
-                        continue
-                    
+                if lat_a is None or lng_a is None or lat_b is None or lng_b is None:
+                    continue
+                
+                try:
                     dist_km, time_min = amap_client.get_route_distance_time(
                         origin_lng=lng_a,
                         origin_lat=lat_a,
@@ -328,16 +335,11 @@ def _compute_day_totals_with_amap():
                     )
                     total_dist_km += dist_km
                     total_time_min += time_min
+                except Exception as e:
+                    print(f"⚠️ AMap API error: {e}")
+                    continue
             
-            # Note: 目前 schedule 表格沒有這些欄位,暫時跳過
-            # cur.execute(
-            #     """
-            #     UPDATE schedule
-            #     SET day_total_distance_km = ?, day_total_travel_time_min = ?
-            #     WHERE schedule_date = ?;
-            #     """,
-            #     (total_dist_km, total_time_min, d),
-            # )
+            print(f"  Day {d}: {total_dist_km:.1f} km, {total_time_min:.1f} min")
 
 
 
@@ -346,10 +348,12 @@ def _optimize_day_route_orders():
     with data_access.get_db_connection() as conn:
         cur = conn.cursor()
         
+        # ✅ 改為 schedule_date
         cur.execute("SELECT DISTINCT schedule_date FROM schedule ORDER BY schedule_date;")
         dates = [r[0] for r in cur.fetchall()]
         
         for d in dates:
+            # ✅ 改為 group_number
             cur.execute(
                 "SELECT DISTINCT group_number FROM schedule WHERE schedule_date = ? ORDER BY group_number;",
                 (d,),
@@ -359,7 +363,7 @@ def _optimize_day_route_orders():
             for gno in groups:
                 cur.execute(
                     """
-                    SELECT s.shop_id, sm.lat, sm.lng
+                    SELECT s.id, s.shop_id, sm.lat, sm.lng
                     FROM schedule s
                     JOIN shop_master sm ON s.shop_id = sm.shop_id
                     WHERE s.schedule_date = ? AND s.group_number = ?
@@ -377,10 +381,10 @@ def _optimize_day_route_orders():
                 # Build distance matrix
                 distance_matrix = []
                 for i in range(n):
-                    _, lat_i, lng_i = rows[i]
+                    _, _, lat_i, lng_i = rows[i]
                     row_i = []
                     for j in range(n):
-                        _, lat_j, lng_j = rows[j]
+                        _, _, lat_j, lng_j = rows[j]
                         if i == j or lat_i is None or lng_i is None or lat_j is None or lng_j is None:
                             row_i.append(0.0)
                         else:
@@ -392,12 +396,22 @@ def _optimize_day_route_orders():
                 try:
                     order = route_optimizer.solve_tsp(distance_matrix)
                     
-                    # 目前 schedule 表格沒有 day_route_order 欄位
-                    # 暫時跳過路徑順序更新
-                    # 如果需要,可以加入 route_order 欄位
+                    # 為每個店舖按照優化後的順序更新編號
+                    # 使用 shop_id 和 id 來定位記錄
+                    for new_order_idx, original_idx in enumerate(order, start=1):
+                        record_id, shop_id, _, _ = rows[original_idx]
+                        
+                        # 這裡可以選擇:
+                        # 方案 A: 在程式中記錄順序 (不修改資料庫)
+                        # 方案 B: 如果要存到資料庫,需要先加 route_order 欄位
+                        
+                        # 目前採用方案 A: 只在 console 顯示
+                        if new_order_idx == 1:
+                            print(f"  Optimized route for {d} Group {gno}:", end=" ")
+                        print(f"{shop_id}", end=" -> " if new_order_idx < n else "\n")
                     
                 except Exception as e:
-                    print(f"⚠️ TSP optimization failed for {d} group {gno}: {e}")
+                    print(f"⚠️ TSP optimization failed for {d} Group {gno}: {e}")
                     continue
 
 
