@@ -189,27 +189,38 @@ def _add_shop_marker(feature_group, shop: Dict, color: str, group_no: int):
     status = shop.get("status", "Planned")
     logo_url = shop.get("brand_icon_url", "")
     
-    # Create popup HTML with brand logo
+    # ✅ 增強的 Popup: 顯示大 Logo + 完整資訊
     popup_html = f"""
-    <div style="font-family: Arial, sans-serif; width: 280px;">
-        <div style="background-color: {color}; color: white; padding: 10px; margin: -10px -10px 10px -10px; border-radius: 5px 5px 0 0;">
-            <h4 style="margin: 0; font-size: 16px;">🏪 {shop_name}</h4>
-            <small>Shop ID: {shop_id}</small>
+    <div style="font-family: Arial, sans-serif; width: 300px;">
+        <div style="background-color: {color}; color: white; padding: 12px; margin: -10px -10px 15px -10px; border-radius: 8px 8px 0 0;">
+            <h4 style="margin: 0 0 5px 0; font-size: 18px;">🏪 {shop_name}</h4>
+            <div style="font-size: 11px; opacity: 0.9;">Shop ID: {shop_id} | Group {group_no}</div>
         </div>
         
-        <div style="padding: 10px 0;">
-            {_get_logo_html(logo_url, brand)}
+        <div style="padding: 0 10px 10px 10px;">
+            {_get_logo_html_large(logo_url, brand)}
             
-            <div style="margin-top: 10px;">
-                <strong>🏢 Brand:</strong> {brand}<br>
-                <strong>📍 Address:</strong> {address}<br>
-                <strong>🏷️ Status:</strong> <span style="color: {_get_status_color(status)};">{status}</span><br>
-                <strong>👥 Group:</strong> {group_no}
+            <div style="margin-top: 15px; line-height: 1.6;">
+                <div style="margin-bottom: 8px;">
+                    <strong style="color: {color};">🏢 Brand:</strong> 
+                    <span style="font-size: 15px; font-weight: 600;">{brand}</span>
+                </div>
+                <div style="margin-bottom: 8px;">
+                    <strong style="color: {color};">📍 Address:</strong><br>
+                    <span style="font-size: 13px;">{address}</span>
+                </div>
+                <div style="margin-bottom: 8px;">
+                    <strong style="color: {color};">🏷️ Status:</strong> 
+                    <span style="background-color: {_get_status_color(status)}; color: white; padding: 2px 8px; border-radius: 12px; font-size: 12px; font-weight: 600;">
+                        {status}
+                    </span>
+                </div>
             </div>
             
-            <div style="margin-top: 10px; padding-top: 10px; border-top: 1px solid #ddd;">
-                <a href="https://www.google.com/maps/search/?api=1&query={lat},{lng}" target="_blank" 
-                   style="color: #4285F4; text-decoration: none;">
+            <div style="margin-top: 15px; padding-top: 12px; border-top: 2px solid #eee; text-align: center;">
+                <a href="https://www.google.com/maps/search/?api=1&query={lat},{lng}" 
+                   target="_blank" 
+                   style="display: inline-block; background-color: #4285F4; color: white; padding: 8px 16px; border-radius: 6px; text-decoration: none; font-weight: 600; font-size: 13px;">
                     📍 Open in Google Maps
                 </a>
             </div>
@@ -217,88 +228,64 @@ def _add_shop_marker(feature_group, shop: Dict, color: str, group_no: int):
     </div>
     """
     
-    # Determine icon
-    if logo_url and logo_url.startswith('http'):
-        # ✅ 縮小 Logo 尺寸
-        icon_html = f"""
-        <div style="position: relative;">
-            <div style="
-                width: 32px;          /* ✅ 從 40px 改為 32px */
-                height: 32px;         /* ✅ 從 40px 改為 32px */
-                background-color: white;
-                border: 2px solid {color};  /* ✅ 從 3px 改為 2px */
-                border-radius: 6px;   /* ✅ 從 8px 改為 6px */
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                box-shadow: 0 2px 4px rgba(0,0,0,0.3);
-            ">
-                <img src="{logo_url}" 
-                     style="max-width: 28px; max-height: 28px; object-fit: contain;"  /* ✅ 從 34px 改為 28px */
-                     onerror="this.style.display='none'; this.parentElement.innerHTML='<div style=\\'color:{color};font-weight:bold;font-size:12px;\\'>{brand[:2]}</div>'">
-            </div>
-            <div style="
-                position: absolute;
-                bottom: -16px;        /* ✅ 從 -18px 改為 -16px */
-                left: 50%;
-                transform: translateX(-50%);
-                background-color: {color};
-                color: white;
-                padding: 1px 4px;     /* ✅ 從 2px 6px 改為 1px 4px */
-                border-radius: 8px;   /* ✅ 從 10px 改為 8px */
-                font-size: 9px;       /* ✅ 從 10px 改為 9px */
-                font-weight: bold;
-                white-space: nowrap;
-                box-shadow: 0 1px 2px rgba(0,0,0,0.3);
-            ">{shop_id}</div>
-        </div>
-        """
-        
-        icon = folium.DivIcon(html=icon_html)
-    else:
-        # Fallback to colored circle with brand initial
-        brand_initial = brand[:2].upper() if brand else "?"
-        icon_html = f"""
-        <div style="position: relative;">
-            <div style="
-                width: 28px;          /* ✅ 從 36px 改為 28px */
-                height: 28px;         /* ✅ 從 36px 改為 28px */
-                background-color: {color};
-                border: 2px solid white;  /* ✅ 從 3px 改為 2px */
-                border-radius: 50%;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                box-shadow: 0 2px 4px rgba(0,0,0,0.4);
-                color: white;
-                font-weight: bold;
-                font-size: 11px;      /* ✅ 從 14px 改為 11px */
-            ">{brand_initial}</div>
-            <div style="
-                position: absolute;
-                bottom: -14px;        /* ✅ 從 -16px 改為 -14px */
-                left: 50%;
-                transform: translateX(-50%);
-                background-color: white;
-                color: {color};
-                padding: 1px 4px;     /* ✅ 從 1px 5px 改為 1px 4px */
-                border-radius: 6px;   /* ✅ 從 8px 改為 6px */
-                font-size: 8px;       /* ✅ 從 9px 改為 8px */
-                font-weight: bold;
-                border: 1px solid {color};
-                white-space: nowrap;
-            ">{shop_id}</div>
-        </div>
-        """
-        icon = folium.DivIcon(html=icon_html)
+    # ✅ 簡單的彩色圖釘圖示 (帶 Shop ID)
+    icon_html = f"""
+    <div style="position: relative;">
+        <div style="
+            width: 18px;
+            height: 18px;
+            background-color: {color};
+            border: 2px solid white;
+            border-radius: 50%;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.4);
+        "></div>
+        <div style="
+            position: absolute;
+            bottom: -12px;
+            left: 50%;
+            transform: translateX(-50%);
+            background-color: white;
+            color: {color};
+            padding: 1px 4px;
+            border-radius: 6px;
+            font-size: 8px;
+            font-weight: bold;
+            border: 1px solid {color};
+            white-space: nowrap;
+            box-shadow: 0 1px 2px rgba(0,0,0,0.2);
+        ">{shop_id}</div>
+    </div>
+    """
+    
+    icon = folium.DivIcon(html=icon_html)
     
     # Add marker
     folium.Marker(
         location=[lat, lng],
-        popup=folium.Popup(popup_html, max_width=300),
-        tooltip=f"{shop_name} ({brand})",
+        popup=folium.Popup(popup_html, max_width=320),
+        tooltip=f"🏪 {shop_name} | {brand}",  # ✅ 懸停時顯示品牌
         icon=icon
     ).add_to(feature_group)
+
+
+def _get_logo_html_large(logo_url: str, brand: str) -> str:
+    """Generate HTML for large brand logo display in popup."""
+    if logo_url and logo_url.startswith('http'):
+        return f"""
+        <div style="text-align: center; padding: 15px; background-color: #f9f9f9; border-radius: 8px; margin-bottom: 5px;">
+            <img src="{logo_url}" 
+                 style="max-width: 160px; max-height: 80px; object-fit: contain;"
+                 alt="{brand}"
+                 onerror="this.parentElement.innerHTML='<div style=\\'color:#999;font-size:16px;font-weight:600;\\'>{brand}</div>'">
+        </div>
+        """
+    else:
+        return f"""
+        <div style="text-align: center; padding: 15px; background-color: #f9f9f9; border-radius: 8px; margin-bottom: 5px;">
+            <div style="color: #666; font-size: 18px; font-weight: 600;">{brand}</div>
+        </div>
+        """
+
 
 
 
