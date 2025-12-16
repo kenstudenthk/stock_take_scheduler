@@ -21,7 +21,7 @@ def render():
             "Date",
             value=datetime.date.today(),
             help="Filter by schedule date.",
-            key="view_date",   # ✅ 唯一 key
+            key="view_date",
         )
         use_date = st.checkbox("Use date filter", value=True, key="view_use_date")
 
@@ -127,6 +127,7 @@ def render():
                             "Status": r.get("status", "Planned"),
                             "Region": r.get("region") or r.get("region_code", ""),
                             "District": r.get("district") or r.get("district_en", ""),
+                            "Brand": r.get("brand", "Unknown"),  # ✅ 加入 Brand
                             "Address": r.get("address") or r.get("address_zh", ""),
                             "Status Reason": r.get("status_reason", "") or "",
                         }
@@ -164,25 +165,41 @@ def render():
                         )
 
                     # Quick statistics
-                    with st.expander("📊 Quick statistics"):
+                    with st.expander("📊 Quick statistics", expanded=True):
                         status_counts: dict[str, int] = {}
                         region_counts: dict[str, int] = {}
+                        brand_counts: dict[str, int] = {}
 
                         for row in display_rows:
-                            s = row["Status"]
-                            rgn = row["Region"]
+                            # Handle None values
+                            s = row["Status"] if row["Status"] else "Unknown"
+                            rgn = row["Region"] if row["Region"] else "Unknown"
+                            brand = row.get("Brand", "Unknown") or "Unknown"
+                            
                             status_counts[s] = status_counts.get(s, 0) + 1
                             region_counts[rgn] = region_counts.get(rgn, 0) + 1
+                            brand_counts[brand] = brand_counts.get(brand, 0) + 1
 
-                        col_s1, col_s2 = st.columns(2)
+                        col_s1, col_s2, col_s3 = st.columns(3)
+                        
                         with col_s1:
                             st.markdown("**By Status:**")
-                            for s, cnt in sorted(status_counts.items()):
-                                st.metric(s, cnt)
+                            for s, cnt in sorted(status_counts.items(), key=lambda x: (x[0] is None, x[0])):
+                                st.metric(s or "Unknown", cnt)
+                        
                         with col_s2:
                             st.markdown("**By Region:**")
-                            for rgn, cnt in sorted(region_counts.items()):
-                                st.metric(rgn, cnt)
+                            for rgn, cnt in sorted(region_counts.items(), key=lambda x: (x[0] is None, x[0])):
+                                st.metric(rgn or "Unknown", cnt)
+                        
+                        with col_s3:
+                            st.markdown("**By Brand:**")
+                            # 只顯示前 5 個品牌
+                            for brand, cnt in sorted(brand_counts.items(), key=lambda x: -x[1])[:5]:
+                                st.metric(brand or "Unknown", cnt)
+                            
+                            if len(brand_counts) > 5:
+                                st.caption(f"...and {len(brand_counts) - 5} more brands")
 
             except Exception as e:
                 st.error(f"Error searching schedule: {str(e)}")
