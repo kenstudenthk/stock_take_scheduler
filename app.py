@@ -282,6 +282,39 @@ def main():
                 st.error("❌ 資料庫不存在")
 
         st.markdown("---")
+        if st.button("🖼️ 測試 Brand Icon 格式"):
+            try:
+                with data_access.get_db_connection() as conn:
+                    cur = conn.cursor()
+                    cur.execute("""
+                        SELECT shop_id, shop_name, brand, brand_icon_url 
+                        FROM shop_master 
+                        WHERE brand_icon_url IS NOT NULL AND brand_icon_url != ''
+                        LIMIT 3
+                    """)
+                    samples = cur.fetchall()
+                
+                if samples:
+                    st.write("**Brand Icon URL 範例:**")
+                    for shop_id, shop_name, brand, icon_url in samples:
+                        st.write(f"**{brand}** ({shop_id}):")
+                        st.code(icon_url, language="text")
+                        
+                        # 嘗試顯示圖片
+                        if icon_url and icon_url.startswith('http'):
+                            try:
+                                st.image(icon_url, width=50, caption=shop_name)
+                            except Exception as e:
+                                st.error(f"無法顯示圖片: {e}")
+                else:
+                    st.warning("⚠️ 資料庫中沒有 brand_icon_url 資料")
+                    
+            except Exception as e:
+                st.error(f"❌ 測試失敗: {e}")
+
+
+
+        st.markdown("---")
         if st.button("🧪 測試 get_all_shops"):
             try:
                 shops = data_access.get_all_shops(active_only=True)

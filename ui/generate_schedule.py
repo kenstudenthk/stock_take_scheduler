@@ -2,7 +2,9 @@
 
 import streamlit as st
 from datetime import date, timedelta
+import pandas as pd  # ✅ 加入這行
 from core import data_access, holidays, scheduler_engine
+
 
 
 def render():
@@ -217,33 +219,76 @@ def render():
                             st.metric("Finish Date", result.finish_date.strftime("%Y-%m-%d"))
                         
                         # Show region breakdown
-                        if result.region_counts:
-                            st.markdown("**Region Breakdown:**")
-                            cols = st.columns(len(result.region_counts))
-                            for idx, (region, count) in enumerate(sorted(result.region_counts.items())):
-                                with cols[idx]:
-                                    region_name = region_map.get(region, region)
-                                    st.metric(region_name, count)
-                        
-                        # Show cluster quality if available
-                        if result.cluster_quality:
-                            st.markdown("**Clustering Quality:**")
-                            col_q1, col_q2 = st.columns(2)
-                            with col_q1:
-                                st.metric("Avg Distance", f"{result.cluster_quality['avg_intra_cluster_distance_km']:.2f} km")
-                            with col_q2:
-                                st.metric("Region Consistency", f"{result.cluster_quality['region_consistency_pct']:.0f}%")
-                        
-                        st.info("💡 Go to 'Today Schedule' or 'View Schedule' to see the details")
-                        
-                    else:
-                        st.warning("⚠️ No shops match the selected filters")
-                        
-                except Exception as e:
-                    st.error(f"❌ Error: {str(e)}")
-                    with st.expander("Show error details"):
-                        import traceback
-                        st.code(traceback.format_exc())
+# Show region breakdown
+# Show region breakdown
+        if result.region_counts:
+            st.markdown("**📍 Region Breakdown:**")
+            cols = st.columns(len(result.region_counts))
+        for idx, (region, count) in enumerate(sorted(result.region_counts.items())):
+            with cols[idx]:
+                region_name = region_map.get(region, region)
+                st.metric(region_name, count)
+
+    # ✅ 新增：Brand 統計
+    st.markdown("---")
+    st.markdown("**🏢 Brand Breakdown:**")
+    with data_access.get_db_connection() as conn:
+        cur = conn.cursor()
+        
+        # 建立篩選條件
+        filter_conditions = ["s.schedule_date IS NOT NULL"]
+        filter_params = []
+        
+        if regions_param:
+            placeholders = ','.join('?' * len(regions_param))
+            filter_conditions.append(f"sm.region IN ({placeholders})")
+            filter_params.extend(regions_param)
+        
+        if districts_param:
+            placeholders = ','.join('?' * len(districts_param))
+            filter_conditions.append(f"sm.district IN ({placeholders})")
+            filter_params.extend(districts_param)
+        
+        where_clause = " AND ".join(filter_conditions)
+        
+        cur.execute(f"""
+            SELECT sm.brand, COUNT(*) as count
+            FROM schedule s
+            JOIN shop_master sm ON s.shop_id = sm.shop_id
+            WHERE {where_clause}
+            GROUP BY sm.brand
+            ORDER BY count DESC
+        """, filter_params)
+        
+        brand_counts = cur.fetchall()
+
+    if brand_counts:
+        # 動態調整欄位數量 (最多顯示前 6 個品牌)
+        num_cols = min(len(brand_counts), 6)
+        cols_brand = st.columns(num_cols)
+        
+        for idx, (brand, count) in enumerate(brand_counts[:6]):
+            with cols_brand[idx % num_cols]:
+                st.metric(brand or "Unknown", count)
+        
+        # 如果品牌超過 6 個,顯示完整列表
+        if len(brand_counts) > 6:
+            with st.expander(f"📊 View all {len(brand_counts)} brands"):
+                brand_df = pd.DataFrame(brand_counts, columns=["Brand", "Count"])
+                st.dataframe(brand_df, use_container_width=True, hide_index=True)
+
+        st.markdown("---")
+
+# Show cluster quality if available
+if result.cluster_quality:
+    st.markdown("**🎯 Clustering Quality:**")
+    col_q1, col_q2 = st.columns(2)
+    with col_q1:
+        st.metric("Avg Distance", f"{result.cluster_quality['avg_intra_cluster_distance_km']:.2f} km")
+    with col_q2:
+        st.metric("Region Consistency", f"{result.cluster_quality['region_consistency_pct']:.0f}%")
+
+
     
     with col_btn2:
         if st.button("🗑️ Clear All", use_container_width=True):
