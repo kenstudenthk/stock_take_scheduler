@@ -93,7 +93,7 @@ def render():
                     logo_url = row.get('brand_icon_url', '')
                     if logo_url and logo_url.startswith('http'):
                         try:
-                            st.image(logo_url, width=80)  # ✅ 已改為 80px
+                            st.image(logo_url, width=60)  # ✅ 保持 60px (在 expander 中已經夠大)
                         except:
                             st.markdown("🏪")
                     else:

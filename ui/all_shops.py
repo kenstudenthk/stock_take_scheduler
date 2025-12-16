@@ -156,7 +156,7 @@ def render():
                 
                 st.success(f"✅ Found {len(df)} shops")
                 
-                # ========== Map Display (使用 Folium) ==========
+                # ========== Map Display ==========
                 st.markdown("### 🗺️ Shop Locations")
                 
                 map_data = []
@@ -209,13 +209,15 @@ def render():
                     column_config={
                         "Brand Logo": st.column_config.ImageColumn(
                             "Logo",
-                            width="small"
+                            width="medium",  # ✅ 改為 medium (原本是 small)
+                            help="Brand Logo"
                         ),
                         "Active": st.column_config.TextColumn(
                             "Status"
                         )
                     },
-                    hide_index=True
+                    hide_index=True,
+                    height=500  # ✅ 固定高度,避免過長
                 )
                 
                 # Download button
@@ -245,7 +247,7 @@ def render():
                     mtr_count = len(df[df['MTR'] == 'Y'])
                     st.metric("MTR Shops", mtr_count)
                 
-                # Brand breakdown with logos
+                # ========== Brand breakdown with improved layout ==========
                 st.markdown("---")
                 st.markdown("### 🏢 Brand Breakdown")
                 
@@ -258,27 +260,26 @@ def render():
                     if brand not in brand_logos and pd.notna(row['Brand Logo']):
                         brand_logos[brand] = row['Brand Logo']
                 
-                # Display in columns (max 6 per row)
-                num_brands = len(brand_counts)
-                rows_needed = (num_brands + 5) // 6
-                
-                for row_idx in range(rows_needed):
-                    cols = st.columns(6)
-                    start_idx = row_idx * 6
-                    end_idx = min(start_idx + 6, num_brands)
+                # ✅ 改進的品牌統計佈局: Logo + 數字橫向排列
+                for brand, count in sorted(brand_counts.items(), key=lambda x: -x[1]):
+                    logo_url = brand_logos.get(brand, '')
                     
-                    for col_idx, (brand, count) in enumerate(list(brand_counts.items())[start_idx:end_idx]):
-                        with cols[col_idx]:
-                            logo_url = brand_logos.get(brand, '')
-                            if logo_url and logo_url.startswith('http'):
-                                try:
-                                    st.image(logo_url, width=60)
-                                except:
-                                    st.markdown(f"**{brand}**")
-                            else:
-                                st.markdown(f"**{brand}**")
-                            
-                            st.metric("", count, label_visibility="collapsed")
+                    col_logo, col_brand, col_count = st.columns([0.8, 2.5, 1])
+                    
+                    with col_logo:
+                        if logo_url and logo_url.startswith('http'):
+                            try:
+                                st.image(logo_url, width=60)
+                            except:
+                                st.markdown("🏪")
+                        else:
+                            st.markdown("🏪")
+                    
+                    with col_brand:
+                        st.markdown(f"**{brand}**")
+                    
+                    with col_count:
+                        st.metric("", count, label_visibility="collapsed")
                 
             except Exception as e:
                 st.error(f"❌ Error: {str(e)}")
