@@ -40,14 +40,14 @@ def create_route_map(
     map_style: str = "light",
 ) -> Optional[pdk.Deck]:
     """
-    Create an interactive 3D route map using PyDeck.
+    Create an interactive 3D route map using PyDeck with brand logos.
     """
     if not schedule_data:
         return None
 
     # Filter by selected groups
     if selected_groups:
-        schedule_data = [s for s in schedule_data if s.get("group_no") in selected_groups]
+        schedule_data = [s for s in schedule_data if s.get("group_number") in selected_groups]
 
     # ---------- Prepare marker data ----------
     markers_data: List[Dict] = []
@@ -58,61 +58,47 @@ def create_route_map(
         if lat is None or lng is None:
             continue
 
-        group_no = shop.get("group_no", 1)
+        group_no = shop.get("group_number", 1)
         status = shop.get("status", "Planned")
 
         color = GROUP_COLORS[(group_no - 1) % len(GROUP_COLORS)]
-        route_order = int(shop.get("day_route_order", 0) or 0)
         brand_icon = str(shop.get("brand_icon_url") or "")
 
-        markers_data.append(
-            {
-                "lat": float(lat),
-                "lng": float(lng),
-                "route_order": route_order,
-                "route_label": str(route_order),
-                "group_no": int(group_no),
-                "shop_name": str(shop.get("shop_name", "")),
-                "shop_id": str(shop.get("shop_id", "")),
-                "brand": str(shop.get("brand", "")),
-                "brand_icon_url": brand_icon,  
-                "address": str(shop.get("address_zh", "")),
-                "district": str(shop.get("district_en", "")),
-                "region": str(shop.get("region_code", "")),
-                "status": str(status),
-                "color": color,
-                "phone": str(shop.get("phone", "")),
-            }
-        )
+        markers_data.append({
+            "lat": float(lat),
+            "lng": float(lng),
+            "group_number": int(group_no),
+            "shop_name": str(shop.get("shop_name", "")),
+            "shop_id": str(shop.get("shop_id", "")),
+            "brand": str(shop.get("brand", "")),
+            "brand_icon_url": brand_icon,  
+            "address": str(shop.get("address", "")),
+            "district": str(shop.get("district", "")),
+            "region": str(shop.get("region", "")),
+            "status": str(status),
+            "color": color,
+        })
 
     if not markers_data:
         return None
 
     df_markers = pd.DataFrame(markers_data)
-    
-    print("DEBUG markers_data first rows:")
-    print(df_markers[["shop_id", "brand", "brand_icon_url"]].head())
 
     # ---------- Prepare route lines ----------
     line_data: List[Dict] = []
     if show_route_lines:
-        from typing import Any
-
-        groups: Any = df_markers.groupby("group_no")
+        groups = df_markers.groupby("group_number")
         for group_no, group_df in groups:
-            group_df_sorted: Any = group_df.sort_values("route_order")
-            coords_list = group_df_sorted[["lng", "lat"]].values.tolist()
+            coords_list = group_df[["lng", "lat"]].values.tolist()
 
             if len(coords_list) > 1:
                 color_base = GROUP_COLORS[(int(group_no) - 1) % len(GROUP_COLORS)]
                 color_with_alpha = list(color_base) + [200]
-                line_data.append(
-                    {
-                        "path": coords_list,
-                        "group_no": int(group_no),
-                        "color": color_with_alpha,
-                    }
-                )
+                line_data.append({
+                    "path": coords_list,
+                    "group_number": int(group_no),
+                    "color": color_with_alpha,
+                })
 
     # ---------- Create layers ----------
     layers: List[pdk.Layer] = []
@@ -133,30 +119,34 @@ def create_route_map(
         )
         layers.append(line_layer)
 
-    # 2. IconLayer for brand logo (暫時用官方 icon 測試)
-    ICON_URL = "https://raw.githubusercontent.com/visgl/deck.gl-data/master/website/icon-atlas.png"
+    # 2. IconLayer for brand logos
+    # ✅ 使用品牌 Logo URL (如果有的話)
+    FALLBACK_ICON = "https://raw.githubusercontent.com/visgl/deck.gl-data/master/website/icon-atlas.png"
 
     def _build_icon(row):
-        print("DEBUG _build_icon:", row["shop_id"], row.get("brand_icon_url"))
-        # 如果日後要用品牌 logo，改成：url = row.get("brand_icon_url") or ICON_URL
-        url = row.get("brand_icon_url") or ICON_URL
+        url = row.get("brand_icon_url")
+        # ✅ 如果沒有 Logo URL 或無效,使用預設圖示
+        if not url or not isinstance(url, str) or not url.startswith('http'):
+            url = FALLBACK_ICON
+            
         return {
-        "url": url,
-        "width": 64,
-        "height": 64,
-        "anchorY": 64,
-    }
+            "url": url,
+            "width": 128,   # ✅ 增大圖示解析度
+            "height": 128,  # ✅ 增大圖示解析度
+            "anchorY": 128,
+        }
 
     df_markers["icon_data"] = df_markers.apply(_build_icon, axis=1)
 
+    # ✅ 增大圖示尺寸
     def _group_size(row):
-        g = int(row["group_no"])
+        g = int(row["group_number"])
         if g == 1:
-            return 6
+            return 10  # 最大組
         elif g == 2:
-            return 5
+            return 8
         else:
-            return 4
+            return 6
 
     df_markers["icon_size"] = df_markers.apply(_group_size, axis=1)
     
@@ -165,23 +155,23 @@ def create_route_map(
         df_markers,
         get_position=["lng", "lat"],
         get_icon="icon_data",
-        size_scale=15,
+        size_scale=25,  # ✅ 增大整體尺寸比例
         get_size="icon_size",
         pickable=True,
         auto_highlight=True,
     )
     layers.append(icon_layer)
     
-    # 3. Text labels layer (route number)
+    # 3. Text labels layer (optional)
     if show_labels:
         text_layer = pdk.Layer(
             "TextLayer",
             df_markers,
             get_position=["lng", "lat"],
-            get_text="route_label",
-            get_size=14,
+            get_text="shop_id",  # 顯示店舖 ID
+            get_size=16,  # ✅ 增大文字
             get_color=[255, 255, 255, 255],
-            get_alignment_baseline="'center'",
+            get_alignment_baseline="'bottom'",  # 文字在圖示下方
             get_text_anchor="'middle'",
             pickable=False,
         )
@@ -205,6 +195,7 @@ def create_route_map(
         else:
             zoom = 13
 
+        # 香港範圍檢查
         if not (22.0 < center_lat < 22.6 and 113.8 < center_lng < 114.5):
             center_lat = 22.3193
             center_lng = 114.1694
@@ -228,26 +219,19 @@ def create_route_map(
         "light": "https://basemaps.cartocdn.com/gl/positron-gl-style/style.json",
         "dark": "https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json",
         "streets": "https://basemaps.cartocdn.com/gl/voyager-gl-style/style.json",
-        "satellite": "https://basemaps.cartocdn.com/gl/voyager-gl-style/style.json",
     }
 
     # ---------- Deck ----------
     deck = pdk.Deck(
-    layers=layers,
-    initial_view_state=view_state,
-    tooltip={  # type: ignore[arg-type]
-        "text": "Shop: {shop_name}\nID: {shop_id}\nGroup {group_no} • Order {route_order}"
-    },
-    map_style=map_styles.get(map_style, map_styles["light"]),
-)
-    print(df_markers[["shop_id", "brand", "brand_icon_url"]].head())
+        layers=layers,
+        initial_view_state=view_state,
+        tooltip={
+            "text": "🏪 {shop_name}\n📍 {address}\n🏢 {brand}\nID: {shop_id}\nGroup {group_number}"
+        },
+        map_style=map_styles.get(map_style, map_styles["light"]),
+    )
 
     return deck
-
-
-
-
-
 
 def export_to_google_maps_url(shops: List[Dict]) -> str:
     """

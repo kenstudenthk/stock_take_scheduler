@@ -937,7 +937,7 @@ def delete_all_schedules():
 
 def get_schedule_by_date(schedule_date: str) -> list[dict]:
     """
-    Get all scheduled shops for a specific date.
+    Get all scheduled shops for a specific date with brand logo.
     
     Args:
         schedule_date: Date in ISO format (YYYY-MM-DD)
@@ -949,28 +949,30 @@ def get_schedule_by_date(schedule_date: str) -> list[dict]:
         with get_db_connection() as conn:
             cur = conn.cursor()
             
+            # ✅ JOIN shop_master to get brand_icon_url
             cur.execute("""
                 SELECT 
-                    shop_id,
-                    shop_name,
-                    address,
-                    region,
-                    district,
-                    brand,
-                    lat,
-                    lng,
-                    is_mtr,
-                    schedule_date,
-                    group_number,
-                    status
-                FROM schedule
-                WHERE schedule_date = ?
-                ORDER BY group_number, shop_id
+                    s.shop_id,
+                    s.shop_name,
+                    s.address,
+                    s.region,
+                    s.district,
+                    s.brand,
+                    s.lat,
+                    s.lng,
+                    s.is_mtr,
+                    s.schedule_date,
+                    s.group_number,
+                    s.status,
+                    sm.brand_icon_url
+                FROM schedule s
+                LEFT JOIN shop_master sm ON s.shop_id = sm.shop_id
+                WHERE s.schedule_date = ?
+                ORDER BY s.group_number, s.shop_id
             """, (schedule_date,))
             
             rows = cur.fetchall()
             
-            # Convert to list of dictionaries
             result = []
             for row in rows:
                 result.append({
@@ -985,7 +987,8 @@ def get_schedule_by_date(schedule_date: str) -> list[dict]:
                     "is_mtr": row[8],
                     "schedule_date": row[9],
                     "group_number": row[10],
-                    "status": row[11] if row[11] else "Planned"
+                    "status": row[11] if row[11] else "Planned",
+                    "brand_icon_url": row[12] or ""  # ✅ 加入 brand_icon_url
                 })
             
             return result
@@ -995,6 +998,7 @@ def get_schedule_by_date(schedule_date: str) -> list[dict]:
         import traceback
         traceback.print_exc()
         return []
+
 
 
 def update_schedule_status(shop_id: str, schedule_date: str, new_status: str) -> bool:

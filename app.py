@@ -224,62 +224,66 @@ def main():
                 st.code(traceback.format_exc())
         
         # === 診斷區塊 ===
-        with st.expander("🔍 即時診斷", expanded=True):
-            db_path = data_access.DB_PATH
-    
-        if db_path.exists():
-            st.success("✅ DB 存在")
-            
-            try:
-                with data_access.get_db_connection() as conn:
-                    cur = conn.cursor()
+        # === 診斷區塊 ===
+with st.expander("🔍 Database Status", expanded=True):
+    db_path = data_access.DB_PATH
+
+    if db_path.exists():
+        st.success("✅ Database exists")
+        
+        try:
+            with data_access.get_db_connection() as conn:
+                cur = conn.cursor()
+                
+                # 檢查 Schema
+                cur.execute("PRAGMA table_info(shop_master);")
+                columns = [col[1] for col in cur.fetchall()]
+                
+                required = ["region", "district", "address", "brand_icon_url"]
+                missing = [c for c in required if c not in columns]
+                
+                if missing:
+                    st.error(f"❌ Missing columns: {', '.join(missing)}")
+                else:
+                    st.success("✅ Schema correct")
+                
+                # ✅ 修正: 顯示所有店舖數
+                cur.execute("SELECT COUNT(*) FROM shop_master;")
+                total = cur.fetchone()[0]
+                
+                # ✅ 修正: 顯示活躍店舖數
+                cur.execute("SELECT COUNT(*) FROM shop_master WHERE is_active = 'Y';")
+                active = cur.fetchone()[0]
+                
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.metric("Total Shops", total)
+                with col2:
+                    st.metric("Active Shops", active)
+                
+                # ✅ 只在有資料時顯示範例
+                if total > 0:
+                    cur.execute("""
+                        SELECT shop_id, shop_name, region, brand, brand_icon_url 
+                        FROM shop_master 
+                        LIMIT 3;
+                    """)
+                    samples = cur.fetchall()
                     
-                    # 檢查 Schema
-                    cur.execute("PRAGMA table_info(shop_master);")
-                    columns = [col[1] for col in cur.fetchall()]
-                    
-                    required = ["region", "district", "address"]
-                    missing = [c for c in required if c not in columns]
-                    
-                    if missing:
-                        st.error(f"❌ 缺少欄位: {', '.join(missing)}")
-                    else:
-                        st.success("✅ Schema 正確")
-                    
-                    # 顯示所有店舖數 (不加篩選)
-                    cur.execute("SELECT COUNT(*) FROM shop_master;")
-                    total = cur.fetchone()[0]
-                    
-                    # 顯示活躍店舖數
-                    cur.execute("SELECT COUNT(*) FROM shop_master WHERE is_active = 'Y';")
-                    active = cur.fetchone()[0]
-                    
-                    col1, col2 = st.columns(2)
-                    with col1:
-                        st.metric("總店舖數", total)
-                    with col2:
-                        st.metric("活躍店舖", active)
-                    
-                    # 如果有資料,顯示範例
-                    if total > 0:
-                        cur.execute("""
-                            SELECT shop_id, shop_name, region, is_active 
-                            FROM shop_master 
-                            LIMIT 3;
-                        """)
-                        samples = cur.fetchall()
-                        
-                        st.write("**範例店舖:**")
+                    if samples:
+                        st.write("**Sample shops:**")
                         for s in samples:
-                            st.caption(f"{s[0]}: {s[1]} ({s[2]}) - Active: {s[3]}")
-                    else:
-                        st.warning("⚠️ 資料庫中沒有店舖資料")
-                        st.info("請使用下方的手動匯入功能")
-                        
-            except Exception as e:
-                st.error(f"診斷失敗: {e}")
-            else:
-                st.error("❌ 資料庫不存在")
+                            logo = "🖼️" if s[4] else "❌"
+                            st.caption(f"{logo} {s[0]}: {s[1]} ({s[2]}, {s[3]})")
+                else:
+                    st.info("ℹ️ No shop data in database. Please import from SharePoint.")
+                    
+        except Exception as e:
+            st.error(f"Diagnostic failed: {e}")
+    else:
+        st.error("❌ Database file does not exist")
+        st.info("Click '強制修復資料庫' to create database")
+
 
         st.markdown("---")
         if st.button("🖼️ 測試 Brand Icon 格式"):
