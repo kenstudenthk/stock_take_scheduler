@@ -39,6 +39,29 @@ def is_business_day(d: datetime.date) -> bool:
     return d.isoformat() not in holidays
 
 
+def is_holiday(date_str: str) -> bool:
+    """
+    Check if a date string (ISO format) is a holiday.
+    
+    Args:
+        date_str: Date in ISO format (YYYY-MM-DD)
+        
+    Returns:
+        True if the date is a holiday, False otherwise
+    """
+    holidays = _load_holidays_cache()
+    return date_str in holidays
+
+
+def next_business_day(start: datetime.date) -> datetime.date:
+    """Find the next business day from start date."""
+    d = start
+    while not is_business_day(d):
+        d += datetime.timedelta(days=1)
+    return d
+
+
+
 def next_business_day(start: datetime.date) -> datetime.date:
     """Find the next business day from start date."""
     d = start
