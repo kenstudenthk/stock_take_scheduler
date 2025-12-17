@@ -10,11 +10,11 @@ import folium
 
 
 def render():
-    """Render the Today Schedule page with new 2-column layout."""
+    """Render the Today Schedule page with action buttons."""
     
     st.subheader("📅 Today's Schedule")
     
-    # ========== Top Filter Bar (緊湊型) ==========
+    # ========== Top Filter Bar ==========
     filter_col1, filter_col2, filter_col3 = st.columns([1.5, 2, 3])
     
     with filter_col1:
@@ -73,20 +73,18 @@ def render():
     st.markdown("<div style='margin-top: 20px;'></div>", unsafe_allow_html=True)
     
     # ========== Main Layout: Left Shop List + Right Map ==========
-    col_left, col_right = st.columns([0.30, 0.70])
+    col_left, col_right = st.columns([0.35, 0.65])
     
     # ---------- LEFT COLUMN: Shop List by Group ----------
     with col_left:
         st.markdown("#### 📝 Today's Route")
         
         # Group colors (high contrast)
-                # Group colors (high contrast)
         GROUP_COLORS = {
             1: "#FF6B6B",  # Red
             2: "#10B981",  # Green
-            3: "#FBBF24",  # Yellow ✅
+            3: "#FBBF24",  # Yellow
         }
-
         
         df_sorted = df_filtered.sort_values(["group_number", "shop_id"])
         
@@ -147,11 +145,15 @@ def render():
                 address = row["address"]
                 status = row.get("status", "Planned")
                 
-                # Shop Card
-                with st.container():
-                    c_logo, c_main, c_action = st.columns([0.8, 3.0, 1.2])
+                # ========== Shop Card with Expandable Actions ==========
+                with st.expander(
+                    f"**{shop_name}** · {shop_id}",
+                    expanded=False
+                ):
+                    # Shop Info
+                    info_col1, info_col2 = st.columns([0.15, 0.85])
                     
-                    with c_logo:
+                    with info_col1:
                         if logo_url and isinstance(logo_url, str) and logo_url.startswith("http"):
                             try:
                                 st.image(logo_url, width=40)
@@ -166,49 +168,69 @@ def render():
                                 unsafe_allow_html=True
                             )
                     
-                    with c_main:
-                        st.markdown(
-                            f"""
-                            <div style='padding-top: 2px;'>
-                                <div style='font-size: 13px; font-weight: 600; color: #111827; margin-bottom: 2px;'>
-                                    {shop_name}
-                                </div>
-                                <div style='font-size: 11px; color: #6b7280;'>
-                                    {shop_id} · {brand}
-                                </div>
-                            </div>
-                            """,
-                            unsafe_allow_html=True
-                        )
+                    with info_col2:
+                        st.markdown(f"**Brand:** {brand}")
+                        st.markdown(f"**Address:** {address}")
+                        st.markdown(f"**Status:** `{status}`")
                     
-                    with c_action:
-                        # Status badge
-                        status_config = {
-                            "Done": {"color": "#22c55e", "icon": "✓"},
-                            "Closed": {"color": "#ef4444", "icon": "✕"},
-                            "Rescheduled": {"color": "#f97316", "icon": "↻"},
-                            "Planned": {"color": "#3b82f6", "icon": "○"}
-                        }
-                        
-                        s_conf = status_config.get(status, status_config["Planned"])
-                        
-                        st.markdown(
-                            f"""
-                            <div style='
-                                font-size: 11px;
-                                font-weight: 600;
-                                background-color: {s_conf['color']}15;
-                                color: {s_conf['color']};
-                                padding: 4px 8px;
-                                border-radius: 12px;
-                                text-align: center;
-                                border: 1px solid {s_conf['color']}40;
-                            '>
-                                {s_conf['icon']} {status}
-                            </div>
-                            """,
-                            unsafe_allow_html=True
+                    st.markdown("---")
+                    
+                    # ✅ Action Buttons
+                    btn_col1, btn_col2, btn_col3 = st.columns(3)
+                    
+                    with btn_col1:
+                        if st.button(
+                            "✅ Done",
+                            key=f"done_{shop_id}_{selected_date}",
+                            use_container_width=True,
+                            type="primary" if status != "Done" else "secondary",
+                            disabled=(status == "Done")
+                        ):
+                            if _mark_as_done(shop_id, selected_date.isoformat()):
+                                st.rerun()
+                    
+                    with btn_col2:
+                        if st.button(
+                            "🚫 Closed",
+                            key=f"closed_{shop_id}_{selected_date}",
+                            use_container_width=True,
+                            disabled=(status == "Closed")
+                        ):
+                            if _mark_as_closed(shop_id, selected_date.isoformat()):
+                                st.rerun()
+                    
+                    with btn_col3:
+                        if st.button(
+                            "📅 Reschedule",
+                            key=f"reschedule_{shop_id}_{selected_date}",
+                            use_container_width=True,
+                            disabled=(status == "Rescheduled")
+                        ):
+                            st.session_state[f"show_reschedule_{shop_id}"] = True
+                            st.rerun()
+                    
+                    # Reschedule Dialog
+                    if st.session_state.get(f"show_reschedule_{shop_id}", False):
+                        st.markdown("##### 📅 Reschedule to:")
+                        new_date = st.date_input(
+                            "New Date",
+                            value=selected_date + timedelta(days=7),
+                            key=f"new_date_{shop_id}",
+                            min_value=date.today()
                         )
+                        
+                        reschedule_col1, reschedule_col2 = st.columns(2)
+                        
+                        with reschedule_col1:
+                            if st.button("Confirm", key=f"confirm_reschedule_{shop_id}", use_container_width=True):
+                                if _reschedule_shop(shop_id, selected_date.isoformat(), new_date.isoformat()):
+                                    st.session_state[f"show_reschedule_{shop_id}"] = False
+                                    st.rerun()
+                        
+                        with reschedule_col2:
+                            if st.button("Cancel", key=f"cancel_reschedule_{shop_id}", use_container_width=True):
+                                st.session_state[f"show_reschedule_{shop_id}"] = False
+                                st.rerun()
                 
                 # Spacing between cards
                 st.markdown("<div style='height: 6px;'></div>", unsafe_allow_html=True)
@@ -243,22 +265,83 @@ def render():
             st.code(traceback.format_exc())
 
 
-# Helper functions for marking status (keep existing)
-def _mark_as_done(shop_id: str, date_str: str):
-    """Mark shop as done."""
+# ========== Helper Functions ==========
+
+def _mark_as_done(shop_id: str, date_str: str) -> bool:
+    """Mark shop as Done."""
     try:
-        data_access.update_shop_status(shop_id, date_str, "Done")
-        st.success(f"✅ Marked {shop_id} as Done")
-        st.rerun()
+        success = data_access.update_schedule_status(shop_id, date_str, "Done")
+        if success:
+            st.success(f"✅ Marked {shop_id} as Done")
+            return True
+        else:
+            st.error(f"❌ Failed to update {shop_id}")
+            return False
     except Exception as e:
         st.error(f"Error: {e}")
+        return False
 
 
-def _show_closed_confirmation(shop_id: str, shop_name: str, date_str: str):
-    """Show confirmation dialog for marking as closed."""
-    st.session_state[f"confirm_closed_{shop_id}_{date_str}"] = True
+def _mark_as_closed(shop_id: str, date_str: str) -> bool:
+    """Mark shop as Closed."""
+    try:
+        success = data_access.update_schedule_status(shop_id, date_str, "Closed")
+        if success:
+            st.warning(f"🚫 Marked {shop_id} as Closed")
+            return True
+        else:
+            st.error(f"❌ Failed to update {shop_id}")
+            return False
+    except Exception as e:
+        st.error(f"Error: {e}")
+        return False
 
 
-def _show_reschedule_dialog(shop_id: str, shop_name: str, date_str: str):
-    """Show reschedule dialog."""
-    st.session_state[f"reschedule_{shop_id}_{date_str}"] = True
+def _reschedule_shop(shop_id: str, old_date: str, new_date: str) -> bool:
+    """Reschedule shop to a new date."""
+    try:
+        # Get shop data from old schedule
+        with data_access.get_db_connection() as conn:
+            cur = conn.cursor()
+            
+            cur.execute("""
+                SELECT shop_id, shop_name, address, region, district,
+                       brand, lat, lng, is_mtr, group_number
+                FROM schedule
+                WHERE shop_id = ? AND schedule_date = ?
+            """, (shop_id, old_date))
+            
+            row = cur.fetchone()
+            
+            if not row:
+                st.error(f"❌ Shop {shop_id} not found in schedule")
+                return False
+            
+            # Mark old schedule as Rescheduled
+            cur.execute("""
+                UPDATE schedule
+                SET status = 'Rescheduled'
+                WHERE shop_id = ? AND schedule_date = ?
+            """, (shop_id, old_date))
+            
+            # Insert into new date
+            cur.execute("""
+                INSERT INTO schedule (
+                    shop_id, shop_name, address, region, district,
+                    brand, lat, lng, is_mtr, schedule_date, group_number, status
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Planned')
+            """, (
+                row[0], row[1], row[2], row[3], row[4],
+                row[5], row[6], row[7], row[8], new_date, row[9]
+            ))
+            
+            conn.commit()
+        
+        st.success(f"✅ Rescheduled {shop_id} to {new_date}")
+        return True
+        
+    except Exception as e:
+        st.error(f"❌ Reschedule failed: {e}")
+        import traceback
+        st.code(traceback.format_exc())
+        return False
