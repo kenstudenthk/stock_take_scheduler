@@ -1174,10 +1174,10 @@ def import_schedules_from_sharepoint(
     """
     從 SharePoint List 匯入排程資料到本地資料庫
     
-    ✅ 匯入欄位:
+    ✅ 欄位映射:
     - field_6: shop_id (Shop Code)
-    - ScheduleDate: schedule_date
-    - ScheduleGroup: group_number
+    - field_2: schedule_date (ScheduleDate)
+    - Schedule_x0020_Group: group_number (ScheduleGroup)
     - ScheduleStatus: status
     
     Args:
@@ -1200,8 +1200,8 @@ def import_schedules_from_sharepoint(
     
     print("📥 開始從 SharePoint 匯入排程資料...")
     
-    # 只取有排程資料的項目
-    query_url = f"{list_url}/items?$select=id&$expand=fields($select=field_6,ScheduleDate,ScheduleGroup,ScheduleStatus)&$filter=fields/ScheduleDate ne null&$top=5000"
+    # ✅ 移除 filter,改為取所有資料
+    query_url = f"{list_url}/items?$select=id&$expand=fields($select=field_6,field_2,Schedule_x0020_Group,ScheduleStatus)&$top=5000"
     
     headers = {
         "Authorization": f"Bearer {token}",
@@ -1217,10 +1217,10 @@ def import_schedules_from_sharepoint(
         data = response.json()
         items = data.get("value", [])
         
-        print(f"📊 從 SharePoint 取得 {len(items)} 筆排程資料")
+        print(f"📊 從 SharePoint 取得 {len(items)} 筆資料")
         
         if not items:
-            print("ℹ️ SharePoint 沒有排程資料")
+            print("ℹ️ SharePoint 沒有資料")
             return {"success": 0, "failed": 0, "skipped": 0}
         
         # 解析並寫入資料庫
@@ -1236,10 +1236,24 @@ def import_schedules_from_sharepoint(
                     fields = item.get("fields", {})
                     
                     # 必要欄位
-                    shop_id = fields.get("field_6")
-                    schedule_date = fields.get("ScheduleDate")
+                    shop_id = fields.get("field_6")  # Shop Code
+                    schedule_date_raw = fields.get("field_2")  # ScheduleDate
                     
-                    if not shop_id or not schedule_date:
+                    # ✅ 如果沒有排程日期,跳過這筆資料
+                    if not shop_id:
+                        skipped_count += 1
+                        continue
+                    
+                    if not schedule_date_raw:
+                        # 沒有排程日期的店舖,跳過
+                        skipped_count += 1
+                        continue
+                    
+                    # 處理日期格式 (SharePoint 可能回傳 ISO 8601 格式)
+                    if isinstance(schedule_date_raw, str):
+                        schedule_date = schedule_date_raw[:10]  # 只取 YYYY-MM-DD
+                    else:
+                        print(f"⚠️ Shop {shop_id} 日期格式無效: {schedule_date_raw}")
                         skipped_count += 1
                         continue
                     
@@ -1257,6 +1271,18 @@ def import_schedules_from_sharepoint(
                         skipped_count += 1
                         continue
                     
+                    # ✅ 讀取 Schedule_x0020_Group
+                    group_number_raw = fields.get("Schedule_x0020_Group")
+                    try:
+                        group_number = int(group_number_raw) if group_number_raw else 1
+                    except (ValueError, TypeError):
+                        group_number = 1
+                    
+                    # ✅ 讀取 ScheduleStatus
+                    status = fields.get("ScheduleStatus", "Planned")
+                    if not status or status == "":
+                        status = "Planned"
+                    
                     # 準備排程資料
                     schedule_data = {
                         "shop_id": str(shop_id).strip(),
@@ -1268,9 +1294,9 @@ def import_schedules_from_sharepoint(
                         "lat": shop_row[5],
                         "lng": shop_row[6],
                         "is_mtr": shop_row[7],
-                        "schedule_date": schedule_date[:10] if len(schedule_date) >= 10 else schedule_date,  # 只取日期部分
-                        "group_number": int(fields.get("ScheduleGroup", 1)),
-                        "status": fields.get("ScheduleStatus", "Planned")
+                        "schedule_date": schedule_date,
+                        "group_number": group_number,
+                        "status": status
                     }
                     
                     # 檢查是否已存在
@@ -1293,6 +1319,7 @@ def import_schedules_from_sharepoint(
                             schedule_data["shop_id"],
                             schedule_data["schedule_date"]
                         ))
+                        print(f"✅ 更新: {shop_id} - {schedule_date} - Group {group_number} - {status}")
                     else:
                         # 新增記錄
                         cur.execute("""
@@ -1314,19 +1341,22 @@ def import_schedules_from_sharepoint(
                             schedule_data["group_number"],
                             schedule_data["status"]
                         ))
+                        print(f"✅ 新增: {shop_id} - {schedule_date} - Group {group_number} - {status}")
                     
                     success_count += 1
                     
                 except Exception as e:
                     failed_count += 1
                     print(f"❌ 匯入失敗 {shop_id}: {e}")
+                    import traceback
+                    traceback.print_exc()
             
             conn.commit()
         
         print(f"\n📊 排程匯入完成：")
         print(f"   ✅ 成功: {success_count}")
         print(f"   ❌ 失敗: {failed_count}")
-        print(f"   ⏭️ 跳過: {skipped_count}")
+        print(f"   ⏭️ 跳過: {skipped_count} (沒有排程日期)")
         
         return {
             "success": success_count,
@@ -1339,6 +1369,7 @@ def import_schedules_from_sharepoint(
         import traceback
         traceback.print_exc()
         raise
+
 
 
 def export_schedules_to_sharepoint(
