@@ -171,6 +171,9 @@ def render():
             st.success("✅ Map settings saved")
     
     # ========== Tab 4: Data Management ==========
+    # ui/settings.py (修改 Tab 4: Data Management 部分)
+
+    # ========== Tab 4: Data Management ==========
     with tab4:
         st.markdown("### 💾 Data Import/Export")
         st.caption("Manage your shop master data and schedules")
@@ -181,12 +184,13 @@ def render():
         col1, col2 = st.columns(2)
         
         with col1:
-            if st.button("📥 Import from SharePoint", use_container_width=True):
+            st.markdown("**Shop Master Data**")
+            if st.button("📥 Import Shops from SharePoint", use_container_width=True, key="import_shops"):
                 sp_url = data_access.get_setting("SHAREPOINT_LIST_URL")
                 sp_token = data_access.get_setting("SHAREPOINT_ACCESS_TOKEN")
                 
                 if sp_url and sp_token:
-                    with st.spinner("Importing..."):
+                    with st.spinner("Importing shops..."):
                         try:
                             result = data_access.import_shops_from_sharepoint(
                                 list_url=sp_url,
@@ -194,27 +198,35 @@ def render():
                                 overwrite=True
                             )
                             st.success(f"✅ Imported {result['success']} shops")
+                            if result['failed'] > 0:
+                                st.warning(f"⚠️ {result['failed']} shops failed")
                         except Exception as e:
                             st.error(f"❌ Import failed: {e}")
                 else:
                     st.warning("⚠️ Configure SharePoint settings first")
         
         with col2:
-            uploaded_file = st.file_uploader(
-                "📤 Upload CSV",
-                type=['csv'],
-                help="Upload a CSV file with shop data"
-            )
-            
-            if uploaded_file:
-                if st.button("Import CSV", use_container_width=True):
-                    try:
-                        import pandas as pd
-                        df = pd.read_csv(uploaded_file)
-                        st.success(f"✅ Loaded {len(df)} records from CSV")
-                        st.dataframe(df.head())
-                    except Exception as e:
-                        st.error(f"❌ CSV import failed: {e}")
+            st.markdown("**Schedule Data**")
+            if st.button("📥 Import Schedules from SharePoint", use_container_width=True, key="import_schedules"):
+                sp_url = data_access.get_setting("SHAREPOINT_LIST_URL")
+                sp_token = data_access.get_setting("SHAREPOINT_ACCESS_TOKEN")
+                
+                if sp_url and sp_token:
+                    with st.spinner("Importing schedules..."):
+                        try:
+                            result = data_access.import_schedules_from_sharepoint(
+                                list_url=sp_url,
+                                token=sp_token
+                            )
+                            st.success(f"✅ Imported {result['success']} schedules")
+                            if result['failed'] > 0:
+                                st.warning(f"⚠️ {result['failed']} schedules failed")
+                            if result['skipped'] > 0:
+                                st.info(f"ℹ️ {result['skipped']} schedules skipped")
+                        except Exception as e:
+                            st.error(f"❌ Import failed: {e}")
+                else:
+                    st.warning("⚠️ Configure SharePoint settings first")
         
         st.markdown("---")
         
@@ -224,7 +236,7 @@ def render():
         col1, col2 = st.columns(2)
         
         with col1:
-            if st.button("📥 Export All Shops", use_container_width=True):
+            if st.button("📥 Export All Shops (CSV)", use_container_width=True):
                 try:
                     shops = data_access.get_all_shops(active_only=False)
                     import pandas as pd
@@ -241,11 +253,11 @@ def render():
                     st.error(f"❌ Export failed: {e}")
         
         with col2:
-            if st.button("📥 Export All Schedules", use_container_width=True):
+            if st.button("📥 Export All Schedules (CSV)", use_container_width=True):
                 try:
                     with data_access.get_db_connection() as conn:
                         import pandas as pd
-                        df = pd.read_sql_query("SELECT * FROM schedule", conn)
+                        df = pd.read_sql_query("SELECT * FROM schedule ORDER BY schedule_date, group_number", conn)
                         csv = df.to_csv(index=False)
                         st.download_button(
                             "💾 Download schedules.csv",
@@ -259,31 +271,77 @@ def render():
         
         st.markdown("---")
         
-        # Danger zone
-        with st.expander("⚠️ Danger Zone", expanded=False):
-            st.error("**Warning: These actions cannot be undone!**")
+        # Sync to SharePoint
+        st.markdown("#### 🔄 Sync to SharePoint")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            sync_start_date = st.date_input(
+                "Start Date",
+                value=datetime.date.today(),
+                key="sync_start_date"
+            )
+        
+        with col2:
+            sync_end_date = st.date_input(
+                "End Date",
+                value=datetime.date.today() + datetime.timedelta(days=30),
+                key="sync_end_date"
+            )
+        
+        if st.button("🔄 Sync Schedules to SharePoint", type="primary", use_container_width=True):
+            sp_url = data_access.get_setting("SHAREPOINT_LIST_URL")
+            sp_token = data_access.get_setting("SHAREPOINT_ACCESS_TOKEN")
             
-            col1, col2 = st.columns(2)
-            
-            with col1:
-                if st.button("🗑️ Clear All Schedules", use_container_width=True):
+            if sp_url and sp_token:
+                with st.spinner("Syncing to SharePoint..."):
                     try:
-                        with data_access.get_db_connection() as conn:
-                            cur = conn.cursor()
-                            cur.execute("DELETE FROM schedule;")
-                        st.success("✅ All schedules cleared")
+                        result = data_access.export_schedules_to_sharepoint(
+                            start_date=sync_start_date.isoformat(),
+                            end_date=sync_end_date.isoformat(),
+                            list_url=sp_url,
+                            token=sp_token
+                        )
+                        st.success(f"✅ Synced {result['success']} schedules")
+                        if result['failed'] > 0:
+                            st.warning(f"⚠️ {result['failed']} schedules failed")
                     except Exception as e:
-                        st.error(f"❌ Failed: {e}")
-            
-            with col2:
-                if st.button("🔄 Reset Database", use_container_width=True):
-                    st.warning("⚠️ This will delete ALL data!")
-                    if st.button("⚠️ Confirm Reset"):
+                        st.error(f"❌ Sync failed: {e}")
+            else:
+                st.warning("⚠️ Configure SharePoint settings first")
+        
+        st.markdown("---")
+        
+        # Danger zone (保持原樣)
+        with st.expander("⚠️ Danger Zone", expanded=False):
+            # ... (原有的危險區域代碼)
+
+        # Danger zone
+            with st.expander("⚠️ Danger Zone", expanded=False):
+                st.error("**Warning: These actions cannot be undone!**")
+                
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    if st.button("🗑️ Clear All Schedules", use_container_width=True):
                         try:
-                            import os
-                            if data_access.DB_PATH.exists():
-                                os.remove(data_access.DB_PATH)
-                            data_access.init_db()
-                            st.success("✅ Database reset")
+                            with data_access.get_db_connection() as conn:
+                                cur = conn.cursor()
+                                cur.execute("DELETE FROM schedule;")
+                            st.success("✅ All schedules cleared")
                         except Exception as e:
                             st.error(f"❌ Failed: {e}")
+                
+                with col2:
+                    if st.button("🔄 Reset Database", use_container_width=True):
+                        st.warning("⚠️ This will delete ALL data!")
+                        if st.button("⚠️ Confirm Reset"):
+                            try:
+                                import os
+                                if data_access.DB_PATH.exists():
+                                    os.remove(data_access.DB_PATH)
+                                data_access.init_db()
+                                st.success("✅ Database reset")
+                            except Exception as e:
+                                st.error(f"❌ Failed: {e}")

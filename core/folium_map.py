@@ -10,20 +10,20 @@ from io import BytesIO
 from PIL import Image
 import requests
 
-
 # Group 顏色配置
 GROUP_COLORS = [
     "#FF6B6B",  # Group 1 - 紅色
-    "#4ECDC4",  # Group 2 - 青色
-    "#45B7D1",  # Group 3 - 藍色
-    "#FFA07A",  # Group 4 - 橙色
-    "#98D8C8",  # Group 5 - 綠色
-    "#F7DC6F",  # Group 6 - 黃色
-    "#BB8FCE",  # Group 7 - 紫色
-    "#85C1E2",  # Group 8 - 淺藍
-    "#F8B88B",  # Group 9 - 淺橙
-    "#A9DFB",   # Group 10 - 淺綠
+    "#10B981",  # Group 2 - 綠色
+    "#FBBF24",  # Group 3 - 黃色 ✅
+    "#8B5CF6",  # Group 4 - 紫色
+    "#EC4899",  # Group 5 - 粉紅
+    "#F59E0B",  # Group 6 - 橙色
+    "#6366F1",  # Group 7 - 靛藍
+    "#14B8A6",  # Group 8 - 青綠
+    "#F97316",  # Group 9 - 深橙
+    "#22C55E",  # Group 10 - 淺綠
 ]
+
 
 
 def create_route_map_folium(

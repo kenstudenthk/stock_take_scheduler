@@ -1119,3 +1119,299 @@ def save_schedule_batch(schedule_data: list[dict]) -> bool:
         import traceback
         traceback.print_exc()
         return False
+
+
+# core/data_access.py (在檔案末尾添加)
+
+def import_schedules_from_sharepoint(
+    list_url: str | None = None,
+    token: str | None = None
+) -> dict:
+    """
+    從 SharePoint List 匯入排程資料到本地資料庫
+    
+    ✅ 匯入欄位:
+    - field_6: shop_id (Shop Code)
+    - ScheduleDate: schedule_date
+    - ScheduleGroup: group_number
+    - ScheduleStatus: status
+    
+    Args:
+        list_url: Microsoft Graph List URL
+        token: Access Token
+        
+    Returns:
+        {"success": int, "failed": int, "skipped": int}
+    """
+    import requests
+    
+    # 從 settings 讀取
+    if list_url is None:
+        list_url = get_setting("SHAREPOINT_LIST_URL")
+    if token is None:
+        token = get_setting("SHAREPOINT_ACCESS_TOKEN")
+    
+    if not list_url or not token:
+        raise ValueError("SharePoint URL 或 Token 未設定")
+    
+    print("📥 開始從 SharePoint 匯入排程資料...")
+    
+    # 只取有排程資料的項目
+    query_url = f"{list_url}/items?$select=id&$expand=fields($select=field_6,ScheduleDate,ScheduleGroup,ScheduleStatus)&$filter=fields/ScheduleDate ne null&$top=5000"
+    
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Accept": "application/json"
+    }
+    
+    try:
+        response = requests.get(query_url, headers=headers, timeout=30)
+        
+        if response.status_code != 200:
+            raise Exception(f"SharePoint API 錯誤: {response.status_code} - {response.text}")
+        
+        data = response.json()
+        items = data.get("value", [])
+        
+        print(f"📊 從 SharePoint 取得 {len(items)} 筆排程資料")
+        
+        if not items:
+            print("ℹ️ SharePoint 沒有排程資料")
+            return {"success": 0, "failed": 0, "skipped": 0}
+        
+        # 解析並寫入資料庫
+        success_count = 0
+        failed_count = 0
+        skipped_count = 0
+        
+        with get_db_connection() as conn:
+            cur = conn.cursor()
+            
+            for item in items:
+                try:
+                    fields = item.get("fields", {})
+                    
+                    # 必要欄位
+                    shop_id = fields.get("field_6")
+                    schedule_date = fields.get("ScheduleDate")
+                    
+                    if not shop_id or not schedule_date:
+                        skipped_count += 1
+                        continue
+                    
+                    # 從 shop_master 取得店舖詳細資料
+                    cur.execute("""
+                        SELECT shop_name, address, region, district, brand, lat, lng, is_mtr
+                        FROM shop_master
+                        WHERE shop_id = ?
+                    """, (shop_id,))
+                    
+                    shop_row = cur.fetchone()
+                    
+                    if not shop_row:
+                        print(f"⚠️ Shop {shop_id} 不存在於 shop_master,跳過")
+                        skipped_count += 1
+                        continue
+                    
+                    # 準備排程資料
+                    schedule_data = {
+                        "shop_id": str(shop_id).strip(),
+                        "shop_name": shop_row[0],
+                        "address": shop_row[1],
+                        "region": shop_row[2],
+                        "district": shop_row[3],
+                        "brand": shop_row[4],
+                        "lat": shop_row[5],
+                        "lng": shop_row[6],
+                        "is_mtr": shop_row[7],
+                        "schedule_date": schedule_date[:10] if len(schedule_date) >= 10 else schedule_date,  # 只取日期部分
+                        "group_number": int(fields.get("ScheduleGroup", 1)),
+                        "status": fields.get("ScheduleStatus", "Planned")
+                    }
+                    
+                    # 檢查是否已存在
+                    cur.execute("""
+                        SELECT id FROM schedule
+                        WHERE shop_id = ? AND schedule_date = ?
+                    """, (schedule_data["shop_id"], schedule_data["schedule_date"]))
+                    
+                    existing = cur.fetchone()
+                    
+                    if existing:
+                        # 更新現有記錄
+                        cur.execute("""
+                            UPDATE schedule
+                            SET group_number = ?, status = ?
+                            WHERE shop_id = ? AND schedule_date = ?
+                        """, (
+                            schedule_data["group_number"],
+                            schedule_data["status"],
+                            schedule_data["shop_id"],
+                            schedule_data["schedule_date"]
+                        ))
+                    else:
+                        # 新增記錄
+                        cur.execute("""
+                            INSERT INTO schedule (
+                                shop_id, shop_name, address, region, district,
+                                brand, lat, lng, is_mtr, schedule_date, group_number, status
+                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        """, (
+                            schedule_data["shop_id"],
+                            schedule_data["shop_name"],
+                            schedule_data["address"],
+                            schedule_data["region"],
+                            schedule_data["district"],
+                            schedule_data["brand"],
+                            schedule_data["lat"],
+                            schedule_data["lng"],
+                            schedule_data["is_mtr"],
+                            schedule_data["schedule_date"],
+                            schedule_data["group_number"],
+                            schedule_data["status"]
+                        ))
+                    
+                    success_count += 1
+                    
+                except Exception as e:
+                    failed_count += 1
+                    print(f"❌ 匯入失敗 {shop_id}: {e}")
+            
+            conn.commit()
+        
+        print(f"\n📊 排程匯入完成：")
+        print(f"   ✅ 成功: {success_count}")
+        print(f"   ❌ 失敗: {failed_count}")
+        print(f"   ⏭️ 跳過: {skipped_count}")
+        
+        return {
+            "success": success_count,
+            "failed": failed_count,
+            "skipped": skipped_count
+        }
+        
+    except Exception as e:
+        print(f"❌ SharePoint 排程匯入失敗: {e}")
+        import traceback
+        traceback.print_exc()
+        raise
+
+
+def export_schedules_to_sharepoint(
+    start_date: str | None = None,
+    end_date: str | None = None,
+    list_url: str | None = None,
+    token: str | None = None
+) -> dict:
+    """
+    將本地排程資料同步到 SharePoint List
+    
+    Args:
+        start_date: 開始日期 (YYYY-MM-DD)
+        end_date: 結束日期 (YYYY-MM-DD)
+        list_url: Microsoft Graph List URL
+        token: Access Token
+        
+    Returns:
+        {"success": int, "failed": int}
+    """
+    import requests
+    
+    # 從 settings 讀取
+    if list_url is None:
+        list_url = get_setting("SHAREPOINT_LIST_URL")
+    if token is None:
+        token = get_setting("SHAREPOINT_ACCESS_TOKEN")
+    
+    if not list_url or not token:
+        raise ValueError("SharePoint URL 或 Token 未設定")
+    
+    print("📤 開始同步排程到 SharePoint...")
+    
+    # 取得排程資料
+    with get_db_connection() as conn:
+        cur = conn.cursor()
+        
+        if start_date and end_date:
+            cur.execute("""
+                SELECT shop_id, schedule_date, group_number, status
+                FROM schedule
+                WHERE schedule_date BETWEEN ? AND ?
+                ORDER BY schedule_date, group_number
+            """, (start_date, end_date))
+        elif start_date:
+            cur.execute("""
+                SELECT shop_id, schedule_date, group_number, status
+                FROM schedule
+                WHERE schedule_date >= ?
+                ORDER BY schedule_date, group_number
+            """, (start_date,))
+        else:
+            cur.execute("""
+                SELECT shop_id, schedule_date, group_number, status
+                FROM schedule
+                ORDER BY schedule_date, group_number
+            """)
+        
+        schedules = cur.fetchall()
+    
+    if not schedules:
+        print("ℹ️ 沒有排程資料需要同步")
+        return {"success": 0, "failed": 0}
+    
+    print(f"📊 準備同步 {len(schedules)} 筆排程")
+    
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json",
+        "Accept": "application/json"
+    }
+    
+    success_count = 0
+    failed_count = 0
+    
+    for schedule in schedules:
+        shop_id = schedule[0]
+        schedule_date = schedule[1]
+        group_number = schedule[2]
+        status = schedule[3]
+        
+        try:
+            # 查找對應的 SharePoint Item ID
+            item_id = _get_sharepoint_item_id(shop_id, list_url, token)
+            
+            if not item_id:
+                print(f"⚠️ Shop {shop_id} 在 SharePoint 中找不到,跳過")
+                failed_count += 1
+                continue
+            
+            # 更新 SharePoint Item
+            update_url = f"{list_url}/items/{item_id}/fields"
+            
+            body = {
+                "ScheduleDate": schedule_date,
+                "ScheduleGroup": group_number,
+                "ScheduleStatus": status
+            }
+            
+            response = requests.patch(update_url, headers=headers, json=body, timeout=15)
+            
+            if response.status_code in (200, 204):
+                success_count += 1
+                print(f"✅ {shop_id} ({schedule_date}): 同步成功")
+            else:
+                failed_count += 1
+                print(f"❌ {shop_id}: {response.status_code} - {response.text}")
+                
+        except Exception as e:
+            failed_count += 1
+            print(f"❌ {shop_id} 同步失敗: {e}")
+    
+    print(f"\n📊 排程同步完成：")
+    print(f"   ✅ 成功: {success_count}")
+    print(f"   ❌ 失敗: {failed_count}")
+    
+    return {
+        "success": success_count,
+        "failed": failed_count
+    }

@@ -80,11 +80,13 @@ def render():
         st.markdown("#### 📝 Today's Route")
         
         # Group colors (high contrast)
+                # Group colors (high contrast)
         GROUP_COLORS = {
             1: "#FF6B6B",  # Red
-            2: "#4ECDC4",  # Cyan
-            3: "#45B7D1",  # Blue
+            2: "#10B981",  # Green
+            3: "#FBBF24",  # Yellow ✅
         }
+
         
         df_sorted = df_filtered.sort_values(["group_number", "shop_id"])
         
