@@ -781,8 +781,8 @@ def import_shops_from_sharepoint(
     print("📥 開始從 SharePoint 匯入店舖資料 (Debug 模式)")
     print("=" * 60)
     
-    # 取得所有 SharePoint List 項目
-    query_url = f"{list_url}/items?$select=id&$expand=fields&$top=5000"
+    # ✅ 明確指定所有需要的欄位
+    query_url = f"{list_url}/items?$select=id&$expand=fields($select=field_6,Title,field_7,field_8,field_9,field_10,field_11,field_12,field_13,field_14,field_16,field_17,field_20,field_21,field_23,field_35,field_37,Brand_Logo)&$top=5000"
     
     headers = {
         "Authorization": f"Bearer {token}",
@@ -794,6 +794,8 @@ def import_shops_from_sharepoint(
         response = requests.get(query_url, headers=headers, timeout=30)
         
         if response.status_code != 200:
+            print(f"❌ API 錯誤: {response.status_code}")
+            print(f"回應: {response.text[:500]}")
             raise Exception(f"SharePoint API 錯誤: {response.status_code} - {response.text}")
         
         data = response.json()
@@ -810,6 +812,13 @@ def import_shops_from_sharepoint(
         print("🔍 第一筆資料的欄位結構:")
         print("=" * 60)
         first_item_fields = items[0].get("fields", {})
+        
+        # ✅ 檢查 field_6 是否存在
+        if "field_6" in first_item_fields:
+            print(f"✅ field_6 存在: {first_item_fields['field_6']}")
+        else:
+            print(f"❌ field_6 不存在!")
+            print(f"   可用的欄位: {', '.join(sorted(first_item_fields.keys())[:20])}")
         
         # 列出所有欄位名稱
         for field_name in sorted(first_item_fields.keys()):
@@ -836,13 +845,24 @@ def import_shops_from_sharepoint(
                 try:
                     fields = item.get("fields", {})
                     
-                    # 必要欄位檢查
-                    shop_id = fields.get("field_6")  # Shop Code
+                    # ✅ 必要欄位檢查 (先檢查 field_6,否則用 Title)
+                    shop_id = fields.get("field_6")
                     
                     if not shop_id:
-                        print(f"⚠️ [{idx}] 跳過: 缺少 field_6 (Shop Code)")
+                        # 嘗試使用 Title
+                        shop_id = fields.get("Title")
+                        if shop_id:
+                            print(f"⚠️ [{idx}] 使用 Title 作為 shop_id: {shop_id}")
+                    
+                    if not shop_id:
+                        print(f"⚠️ [{idx}] 跳過: 缺少 field_6 和 Title")
                         skipped_count += 1
                         continue
+                    
+                    # 標準化 shop_id (補齊為 5 位數)
+                    shop_id = str(shop_id).strip()
+                    if shop_id.isdigit() and len(shop_id) < 5:
+                        shop_id = shop_id.zfill(5)
                     
                     # 如果不覆蓋,檢查是否已存在
                     if not overwrite:
@@ -865,8 +885,16 @@ def import_shops_from_sharepoint(
                             return ", ".join([str(v.get("Value", v)) if isinstance(v, dict) else str(v) for v in value])
                         return value
                     
+                    # Brand Logo 特殊處理
+                    brand_icon_url = ""
+                    brand_logo = fields.get("Brand_Logo")
+                    if isinstance(brand_logo, dict):
+                        brand_icon_url = brand_logo.get("Description", "") or brand_logo.get("Url", "")
+                    elif isinstance(brand_logo, str):
+                        brand_icon_url = brand_logo
+                    
                     shop_data = {
-                        "shop_id": str(shop_id).strip(),
+                        "shop_id": shop_id,
                         "shop_name": get_field_value("field_7") or "",
                         "address": get_field_value("field_8") or "",
                         "region": get_field_value("field_9") or "",
@@ -878,7 +906,7 @@ def import_shops_from_sharepoint(
                         "english_address": get_field_value("field_14") or "",
                         "lat": float(fields.get("field_20", 0.0) or 0.0),
                         "lng": float(fields.get("field_21", 0.0) or 0.0),
-                        "brand_icon_url": get_field_value("field_23") or "",
+                        "brand_icon_url": brand_icon_url,
                         "is_mtr": "Y" if get_field_value("field_17") == "Y" else "N",
                         "phone": get_field_value("field_37") or "",
                         "is_active": "Y" if get_field_value("field_35") == "Y" else "N",
@@ -919,8 +947,6 @@ def import_shops_from_sharepoint(
                 except Exception as e:
                     failed_count += 1
                     print(f"❌ [{idx}] 匯入失敗 {shop_id}: {e}")
-                    import traceback
-                    traceback.print_exc()
             
             conn.commit()
         
@@ -943,6 +969,7 @@ def import_shops_from_sharepoint(
         import traceback
         traceback.print_exc()
         raise
+
 
 
 
