@@ -764,34 +764,7 @@ def import_shops_from_sharepoint(
     """
     從 SharePoint List 匯入店舖資料到本地資料庫
     
-    ✅ 正確的欄位映射:
-    - field_6: shop_id
-    - field_7: shop_name  
-    - field_8: address (中文)
-    - field_9: region
-    - field_10: location (地區名稱,如 Aberdeen)
-    - field_11: brand
-    - field_12: brand_code
-    - field_13: division
-    - field_14: english_address
-    - field_16: district (行政區,如 Southern) ← 關鍵修正
-    - field_17: is_mtr
-    - field_20: lat
-    - field_21: lng
-    - field_23: brand_icon_url
-    - field_35: is_active
-    - field_37: phone
-    - field_2: schedule_date (ScheduleDate)
-    - Schedule_x0020_Group: group_number (ScheduleGroup)
-    - ScheduleStatus: status
-    
-    Args:
-        list_url: Microsoft Graph List URL
-        token: Access Token
-        overwrite: 是否覆蓋現有資料
-        
-    Returns:
-        {"success": int, "failed": int, "skipped": int}
+    ✅ Debug 版本:會顯示詳細的匯入過程
     """
     import requests
     
@@ -804,10 +777,12 @@ def import_shops_from_sharepoint(
     if not list_url or not token:
         raise ValueError("SharePoint URL 或 Token 未設定")
     
-    print("📥 開始從 SharePoint 匯入排程資料...")
+    print("=" * 60)
+    print("📥 開始從 SharePoint 匯入店舖資料 (Debug 模式)")
+    print("=" * 60)
     
-    # ✅ 使用正確的欄位名稱
-    query_url = f"{list_url}/items?$select=id&$expand=fields($select=field_6,field_2,Schedule_x0020_Group,ScheduleStatus)&$filter=fields/field_2 ne null&$top=5000"
+    # 取得所有 SharePoint List 項目
+    query_url = f"{list_url}/items?$select=id&$expand=fields&$top=5000"
     
     headers = {
         "Authorization": f"Bearer {token}",
@@ -815,6 +790,7 @@ def import_shops_from_sharepoint(
     }
     
     try:
+        print(f"\n🔗 正在連接 SharePoint...")
         response = requests.get(query_url, headers=headers, timeout=30)
         
         if response.status_code != 200:
@@ -823,11 +799,30 @@ def import_shops_from_sharepoint(
         data = response.json()
         items = data.get("value", [])
         
-        print(f"📊 從 SharePoint 取得 {len(items)} 筆排程資料")
+        print(f"✅ 連線成功! SharePoint 有 {len(items)} 筆資料")
         
         if not items:
-            print("ℹ️ SharePoint 沒有排程資料")
+            print("⚠️ SharePoint List 是空的")
             return {"success": 0, "failed": 0, "skipped": 0}
+        
+        # 🔍 顯示第一筆資料的欄位結構
+        print("\n" + "=" * 60)
+        print("🔍 第一筆資料的欄位結構:")
+        print("=" * 60)
+        first_item_fields = items[0].get("fields", {})
+        
+        # 列出所有欄位名稱
+        for field_name in sorted(first_item_fields.keys()):
+            field_value = first_item_fields[field_name]
+            field_type = type(field_value).__name__
+            
+            # 只顯示前 50 個字元
+            value_preview = str(field_value)[:50] if field_value else "None"
+            print(f"  {field_name:30s} ({field_type:10s}): {value_preview}")
+        
+        print("\n" + "=" * 60)
+        print("📊 開始解析資料...")
+        print("=" * 60)
         
         # 解析並寫入資料庫
         success_count = 0
@@ -837,124 +832,105 @@ def import_shops_from_sharepoint(
         with get_db_connection() as conn:
             cur = conn.cursor()
             
-            for item in items:
+            for idx, item in enumerate(items, 1):
                 try:
                     fields = item.get("fields", {})
                     
-                    # 必要欄位
+                    # 必要欄位檢查
                     shop_id = fields.get("field_6")  # Shop Code
-                    schedule_date_raw = fields.get("field_2")  # ScheduleDate
                     
-                    if not shop_id or not schedule_date_raw:
+                    if not shop_id:
+                        print(f"⚠️ [{idx}] 跳過: 缺少 field_6 (Shop Code)")
                         skipped_count += 1
                         continue
                     
-                    # 處理日期格式 (SharePoint 可能回傳 ISO 8601 格式)
-                    if isinstance(schedule_date_raw, str):
-                        schedule_date = schedule_date_raw[:10]  # 只取 YYYY-MM-DD
-                    else:
-                        print(f"⚠️ 無效的日期格式: {schedule_date_raw}")
-                        skipped_count += 1
-                        continue
+                    # 如果不覆蓋,檢查是否已存在
+                    if not overwrite:
+                        cur.execute("SELECT 1 FROM shop_master WHERE shop_id = ?", (shop_id,))
+                        if cur.fetchone():
+                            skipped_count += 1
+                            continue
                     
-                    # 從 shop_master 取得店舖詳細資料
-                    cur.execute("""
-                        SELECT shop_name, address, region, district, brand, lat, lng, is_mtr
-                        FROM shop_master
-                        WHERE shop_id = ?
-                    """, (shop_id,))
+                    # ✅ 準備資料（處理可能是字典的欄位）
+                    def get_field_value(field_name):
+                        """從 SharePoint 欄位取值,處理字典格式"""
+                        value = fields.get(field_name)
+                        if value is None:
+                            return ""
+                        if isinstance(value, dict):
+                            # Choice 或 Lookup 欄位
+                            return value.get("Value") or value.get("Title") or str(value)
+                        if isinstance(value, list):
+                            # 多選欄位
+                            return ", ".join([str(v.get("Value", v)) if isinstance(v, dict) else str(v) for v in value])
+                        return value
                     
-                    shop_row = cur.fetchone()
-                    
-                    if not shop_row:
-                        print(f"⚠️ Shop {shop_id} 不存在於 shop_master,跳過")
-                        skipped_count += 1
-                        continue
-                    
-                    # ✅ 讀取 Schedule_x0020_Group (可能是字串或數字)
-                    group_number_raw = fields.get("Schedule_x0020_Group")
-                    try:
-                        group_number = int(group_number_raw) if group_number_raw else 1
-                    except (ValueError, TypeError):
-                        group_number = 1
-                    
-                    # ✅ 讀取 ScheduleStatus
-                    status = fields.get("ScheduleStatus", "Planned")
-                    if not status or status == "":
-                        status = "Planned"
-                    
-                    # 準備排程資料
-                    schedule_data = {
+                    shop_data = {
                         "shop_id": str(shop_id).strip(),
-                        "shop_name": shop_row[0],
-                        "address": shop_row[1],
-                        "region": shop_row[2],
-                        "district": shop_row[3],
-                        "brand": shop_row[4],
-                        "lat": shop_row[5],
-                        "lng": shop_row[6],
-                        "is_mtr": shop_row[7],
-                        "schedule_date": schedule_date,
-                        "group_number": group_number,
-                        "status": status
+                        "shop_name": get_field_value("field_7") or "",
+                        "address": get_field_value("field_8") or "",
+                        "region": get_field_value("field_9") or "",
+                        "district": get_field_value("field_16") or "",
+                        "location": get_field_value("field_10") or "",
+                        "brand": get_field_value("field_11") or "",
+                        "brand_code": get_field_value("field_12") or "",
+                        "division": get_field_value("field_13") or "",
+                        "english_address": get_field_value("field_14") or "",
+                        "lat": float(fields.get("field_20", 0.0) or 0.0),
+                        "lng": float(fields.get("field_21", 0.0) or 0.0),
+                        "brand_icon_url": get_field_value("field_23") or "",
+                        "is_mtr": "Y" if get_field_value("field_17") == "Y" else "N",
+                        "phone": get_field_value("field_37") or "",
+                        "is_active": "Y" if get_field_value("field_35") == "Y" else "N",
                     }
                     
-                    # 檢查是否已存在
+                    # 寫入或更新資料庫
                     cur.execute("""
-                        SELECT id FROM schedule
-                        WHERE shop_id = ? AND schedule_date = ?
-                    """, (schedule_data["shop_id"], schedule_data["schedule_date"]))
-                    
-                    existing = cur.fetchone()
-                    
-                    if existing:
-                        # 更新現有記錄
-                        cur.execute("""
-                            UPDATE schedule
-                            SET group_number = ?, status = ?
-                            WHERE shop_id = ? AND schedule_date = ?
-                        """, (
-                            schedule_data["group_number"],
-                            schedule_data["status"],
-                            schedule_data["shop_id"],
-                            schedule_data["schedule_date"]
-                        ))
-                    else:
-                        # 新增記錄
-                        cur.execute("""
-                            INSERT INTO schedule (
-                                shop_id, shop_name, address, region, district,
-                                brand, lat, lng, is_mtr, schedule_date, group_number, status
-                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                        """, (
-                            schedule_data["shop_id"],
-                            schedule_data["shop_name"],
-                            schedule_data["address"],
-                            schedule_data["region"],
-                            schedule_data["district"],
-                            schedule_data["brand"],
-                            schedule_data["lat"],
-                            schedule_data["lng"],
-                            schedule_data["is_mtr"],
-                            schedule_data["schedule_date"],
-                            schedule_data["group_number"],
-                            schedule_data["status"]
-                        ))
+                        INSERT OR REPLACE INTO shop_master (
+                            shop_id, shop_name, address, region, district,
+                            brand, brand_code, division, english_address, location,
+                            lat, lng, brand_icon_url, is_mtr, phone, is_active
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """, (
+                        shop_data["shop_id"],
+                        shop_data["shop_name"],
+                        shop_data["address"],
+                        shop_data["region"],
+                        shop_data["district"],
+                        shop_data["brand"],
+                        shop_data["brand_code"],
+                        shop_data["division"],
+                        shop_data["english_address"],
+                        shop_data["location"],
+                        shop_data["lat"],
+                        shop_data["lng"],
+                        shop_data["brand_icon_url"],
+                        shop_data["is_mtr"],
+                        shop_data["phone"],
+                        shop_data["is_active"]
+                    ))
                     
                     success_count += 1
                     
+                    # 每 50 筆顯示一次進度
+                    if idx % 50 == 0:
+                        print(f"  ✅ 已處理 {idx}/{len(items)} 筆...")
+                    
                 except Exception as e:
                     failed_count += 1
-                    print(f"❌ 匯入失敗 {shop_id}: {e}")
+                    print(f"❌ [{idx}] 匯入失敗 {shop_id}: {e}")
                     import traceback
                     traceback.print_exc()
             
             conn.commit()
         
-        print(f"\n📊 排程匯入完成：")
+        print("\n" + "=" * 60)
+        print("📊 匯入完成統計:")
+        print("=" * 60)
         print(f"   ✅ 成功: {success_count}")
         print(f"   ❌ 失敗: {failed_count}")
         print(f"   ⏭️ 跳過: {skipped_count}")
+        print("=" * 60)
         
         return {
             "success": success_count,
@@ -963,10 +939,11 @@ def import_shops_from_sharepoint(
         }
         
     except Exception as e:
-        print(f"❌ SharePoint 排程匯入失敗: {e}")
+        print(f"❌ SharePoint 匯入失敗: {e}")
         import traceback
         traceback.print_exc()
         raise
+
 
 
 def delete_all_schedules():
