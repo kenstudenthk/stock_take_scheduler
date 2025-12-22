@@ -190,12 +190,16 @@ def render():
                                 st.rerun()
                     
                     with btn_col2:
-                        # ✅ 改為觸發確認對話框
+                        # ✅ 根據狀態改變按鈕文字和樣式
+                        is_closed = (status == "Closed")
+                        button_text = "🔓 Reopen" if is_closed else "🚫 Closed"
+                        button_type = "secondary" if is_closed else "primary"
+                        
                         if st.button(
-                            "🚫 Closed",
+                            button_text,
                             key=f"closed_{shop_id}_{selected_date}",
                             use_container_width=True,
-                            disabled=(status == "Closed")
+                            type=button_type
                         ):
                             st.session_state[f"confirm_closed_{shop_id}"] = True
                             st.rerun()
@@ -210,33 +214,64 @@ def render():
                             st.session_state[f"show_reschedule_{shop_id}"] = True
                             st.rerun()
                     
-                    # ✅ Closed Confirmation Dialog
+                    # ✅ Closed/Reopen Confirmation Dialog
                     if st.session_state.get(f"confirm_closed_{shop_id}", False):
                         st.markdown("---")
-                        st.warning(f"⚠️ **Confirm that '{shop_name}' is permanently closed?**")
-                        st.caption("This action will mark the shop as closed and it will not appear in future schedules.")
                         
-                        confirm_col1, confirm_col2 = st.columns(2)
+                        is_closed = (status == "Closed")
                         
-                        with confirm_col1:
-                            if st.button(
-                                "✅ Confirm Closed", 
-                                key=f"confirm_closed_yes_{shop_id}", 
-                                use_container_width=True,
-                                type="primary"
-                            ):
-                                if _mark_as_closed(shop_id, selected_date.isoformat(), shop_name):
+                        if is_closed:
+                            # 如果已經關閉，顯示取消關閉的確認
+                            st.info(f"ℹ️ **Confirm to reopen '{shop_name}'?**")
+                            st.caption("This action will change the shop status back to 'Planned' and it will appear in schedules again.")
+                            
+                            confirm_col1, confirm_col2 = st.columns(2)
+                            
+                            with confirm_col1:
+                                if st.button(
+                                    "✅ Confirm Reopen", 
+                                    key=f"confirm_reopen_yes_{shop_id}", 
+                                    use_container_width=True,
+                                    type="primary"
+                                ):
+                                    if _reopen_shop(shop_id, selected_date.isoformat(), shop_name):
+                                        st.session_state[f"confirm_closed_{shop_id}"] = False
+                                        st.rerun()
+                            
+                            with confirm_col2:
+                                if st.button(
+                                    "❌ Cancel", 
+                                    key=f"confirm_reopen_no_{shop_id}", 
+                                    use_container_width=True
+                                ):
                                     st.session_state[f"confirm_closed_{shop_id}"] = False
                                     st.rerun()
-                        
-                        with confirm_col2:
-                            if st.button(
-                                "❌ Cancel", 
-                                key=f"confirm_closed_no_{shop_id}", 
-                                use_container_width=True
-                            ):
-                                st.session_state[f"confirm_closed_{shop_id}"] = False
-                                st.rerun()
+                        else:
+                            # 如果未關閉,顯示關閉的確認
+                            st.warning(f"⚠️ **Confirm that '{shop_name}' is permanently closed?**")
+                            st.caption("This action will mark the shop as closed and it will not appear in future schedules.")
+                            
+                            confirm_col1, confirm_col2 = st.columns(2)
+                            
+                            with confirm_col1:
+                                if st.button(
+                                    "✅ Confirm Closed", 
+                                    key=f"confirm_closed_yes_{shop_id}", 
+                                    use_container_width=True,
+                                    type="primary"
+                                ):
+                                    if _mark_as_closed(shop_id, selected_date.isoformat(), shop_name):
+                                        st.session_state[f"confirm_closed_{shop_id}"] = False
+                                        st.rerun()
+                            
+                            with confirm_col2:
+                                if st.button(
+                                    "❌ Cancel", 
+                                    key=f"confirm_closed_no_{shop_id}", 
+                                    use_container_width=True
+                                ):
+                                    st.session_state[f"confirm_closed_{shop_id}"] = False
+                                    st.rerun()
                     
                     # Reschedule Dialog
                     if st.session_state.get(f"show_reschedule_{shop_id}", False):
@@ -321,6 +356,21 @@ def _mark_as_closed(shop_id: str, date_str: str, shop_name: str = "") -> bool:
             return True
         else:
             st.error(f"❌ Failed to update {shop_id}")
+            return False
+    except Exception as e:
+        st.error(f"Error: {e}")
+        return False
+
+
+def _reopen_shop(shop_id: str, date_str: str, shop_name: str = "") -> bool:
+    """Reopen a closed shop (change status from Closed to Planned)."""
+    try:
+        success = data_access.update_schedule_status(shop_id, date_str, "Planned")
+        if success:
+            st.success(f"✅ '{shop_name}' ({shop_id}) has been reopened and set to Planned")
+            return True
+        else:
+            st.error(f"❌ Failed to reopen {shop_id}")
             return False
     except Exception as e:
         st.error(f"Error: {e}")
