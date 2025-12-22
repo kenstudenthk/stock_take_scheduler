@@ -24,6 +24,15 @@ GROUP_COLORS = [
     "#22C55E",  # Group 10 - 淺綠
 ]
 
+# ✅ 地圖樣式配置
+MAP_STYLES = {
+    "Light": "CartoDB positron",
+    "Dark": "CartoDB dark_matter",
+    "Standard": "OpenStreetMap",
+    "Terrain": "Stamen Terrain",
+    "Toner": "Stamen Toner",
+    "Watercolor": "Stamen Watercolor",
+}
 
 
 def create_route_map_folium(
@@ -31,6 +40,7 @@ def create_route_map_folium(
     date_str: str,
     show_route_lines: bool = True,
     selected_groups: Optional[List[int]] = None,
+    map_style: str = "Light",  # ✅ 新增參數
 ) -> folium.Map:
     """
     Create an interactive map using Folium with brand logos.
@@ -40,6 +50,7 @@ def create_route_map_folium(
         date_str: Date string for title
         show_route_lines: Whether to draw route lines
         selected_groups: List of group numbers to display
+        map_style: Map tile style (Light, Dark, Standard, Terrain, Toner, Watercolor)
         
     Returns:
         Folium Map object
@@ -49,12 +60,15 @@ def create_route_map_folium(
     if selected_groups:
         schedule_data = [s for s in schedule_data if s.get("group_number") in selected_groups]
     
+    # ✅ Get tile layer based on selected style
+    tile_layer = MAP_STYLES.get(map_style, "CartoDB positron")
+    
     if not schedule_data:
         # Return empty map centered on Hong Kong
         return folium.Map(
             location=[22.3193, 114.1694],
             zoom_start=11,
-            tiles="OpenStreetMap"
+            tiles=tile_layer
         )
     
     # Calculate map center
@@ -81,13 +95,23 @@ def create_route_map_folium(
         else:
             zoom = 13
     
-    # Create base map
+    # ✅ Create base map with selected style
     m = folium.Map(
         location=center,
         zoom_start=zoom,
-        tiles="CartoDB positron",  # Clean light style
+        tiles=tile_layer,
         control_scale=True
     )
+    
+    # ✅ 添加替代圖層 (讓用戶可以在地圖上切換)
+    for style_name, tile_url in MAP_STYLES.items():
+        if style_name != map_style:  # 不添加當前選中的
+            folium.TileLayer(
+                tiles=tile_url,
+                name=style_name,
+                overlay=False,
+                control=True
+            ).add_to(m)
     
     # Group shops by group_number
     groups = {}
@@ -144,8 +168,6 @@ def create_route_map_folium(
         primary_area_unit='hectares'
     ).add_to(m)
     
-    # core/folium_map.py (在 return m 之前添加)
-
     # Add custom legend
     legend_html = '''
     <div style="position: fixed; 
@@ -175,6 +197,7 @@ def create_route_map_folium(
     m.get_root().html.add_child(folium.Element(legend_html))
     
     return m
+
 
 def _add_shop_marker(feature_group, shop: Dict, color: str, group_no: int):
     """
@@ -263,7 +286,7 @@ def _add_shop_marker(feature_group, shop: Dict, color: str, group_no: int):
     folium.Marker(
         location=[lat, lng],
         popup=folium.Popup(popup_html, max_width=320),
-        tooltip=f"🏪 {shop_name} | {brand}",  # ✅ 懸停時顯示品牌
+        tooltip=f"🏪 {shop_name} | {brand}",
         icon=icon
     ).add_to(feature_group)
 
@@ -285,8 +308,6 @@ def _get_logo_html_large(logo_url: str, brand: str) -> str:
             <div style="color: #666; font-size: 18px; font-weight: 600;">{brand}</div>
         </div>
         """
-
-
 
 
 def _get_logo_html(logo_url: str, brand: str) -> str:
