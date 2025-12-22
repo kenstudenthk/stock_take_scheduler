@@ -190,14 +190,15 @@ def render():
                                 st.rerun()
                     
                     with btn_col2:
+                        # ✅ 改為觸發確認對話框
                         if st.button(
                             "🚫 Closed",
                             key=f"closed_{shop_id}_{selected_date}",
                             use_container_width=True,
                             disabled=(status == "Closed")
                         ):
-                            if _mark_as_closed(shop_id, selected_date.isoformat()):
-                                st.rerun()
+                            st.session_state[f"confirm_closed_{shop_id}"] = True
+                            st.rerun()
                     
                     with btn_col3:
                         if st.button(
@@ -209,8 +210,37 @@ def render():
                             st.session_state[f"show_reschedule_{shop_id}"] = True
                             st.rerun()
                     
+                    # ✅ Closed Confirmation Dialog
+                    if st.session_state.get(f"confirm_closed_{shop_id}", False):
+                        st.markdown("---")
+                        st.warning(f"⚠️ **Confirm that '{shop_name}' is permanently closed?**")
+                        st.caption("This action will mark the shop as closed and it will not appear in future schedules.")
+                        
+                        confirm_col1, confirm_col2 = st.columns(2)
+                        
+                        with confirm_col1:
+                            if st.button(
+                                "✅ Confirm Closed", 
+                                key=f"confirm_closed_yes_{shop_id}", 
+                                use_container_width=True,
+                                type="primary"
+                            ):
+                                if _mark_as_closed(shop_id, selected_date.isoformat(), shop_name):
+                                    st.session_state[f"confirm_closed_{shop_id}"] = False
+                                    st.rerun()
+                        
+                        with confirm_col2:
+                            if st.button(
+                                "❌ Cancel", 
+                                key=f"confirm_closed_no_{shop_id}", 
+                                use_container_width=True
+                            ):
+                                st.session_state[f"confirm_closed_{shop_id}"] = False
+                                st.rerun()
+                    
                     # Reschedule Dialog
                     if st.session_state.get(f"show_reschedule_{shop_id}", False):
+                        st.markdown("---")
                         st.markdown("##### 📅 Reschedule to:")
                         new_date = st.date_input(
                             "New Date",
@@ -222,13 +252,13 @@ def render():
                         reschedule_col1, reschedule_col2 = st.columns(2)
                         
                         with reschedule_col1:
-                            if st.button("Confirm", key=f"confirm_reschedule_{shop_id}", use_container_width=True):
+                            if st.button("✅ Confirm", key=f"confirm_reschedule_{shop_id}", use_container_width=True, type="primary"):
                                 if _reschedule_shop(shop_id, selected_date.isoformat(), new_date.isoformat()):
                                     st.session_state[f"show_reschedule_{shop_id}"] = False
                                     st.rerun()
                         
                         with reschedule_col2:
-                            if st.button("Cancel", key=f"cancel_reschedule_{shop_id}", use_container_width=True):
+                            if st.button("❌ Cancel", key=f"cancel_reschedule_{shop_id}", use_container_width=True):
                                 st.session_state[f"show_reschedule_{shop_id}"] = False
                                 st.rerun()
                 
@@ -282,12 +312,12 @@ def _mark_as_done(shop_id: str, date_str: str) -> bool:
         return False
 
 
-def _mark_as_closed(shop_id: str, date_str: str) -> bool:
+def _mark_as_closed(shop_id: str, date_str: str, shop_name: str = "") -> bool:
     """Mark shop as Closed."""
     try:
         success = data_access.update_schedule_status(shop_id, date_str, "Closed")
         if success:
-            st.warning(f"🚫 Marked {shop_id} as Closed")
+            st.success(f"🚫 '{shop_name}' ({shop_id}) marked as Closed")
             return True
         else:
             st.error(f"❌ Failed to update {shop_id}")
