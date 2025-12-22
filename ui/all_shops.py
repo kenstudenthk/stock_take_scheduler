@@ -220,14 +220,15 @@ def render():
                     height=500  # ✅ 固定高度,避免過長
                 )
                 
-                # Download button
-                csv = df.to_csv(index=False)
+                # ✅ Download button with UTF-8-sig encoding for Excel compatibility
+                csv = df.to_csv(index=False, encoding='utf-8-sig')
                 st.download_button(
                     "📥 Download CSV",
                     csv,
                     file_name="all_shops.csv",
                     mime="text/csv"
                 )
+
                 
                 st.markdown("---")
                 
