@@ -304,16 +304,32 @@ def render():
             st.markdown("<div style='height: 12px;'></div>", unsafe_allow_html=True)
     
     # ---------- RIGHT COLUMN: Map with Tooltip ----------
+    # 在 with col_right: 區塊內，地圖標題後添加
+
     with col_right:
-        st.markdown("#### 🗺️ Route Map")
+        # ✅ 地圖標題與樣式選擇器在同一行
+        map_header_col1, map_header_col2 = st.columns([0.6, 0.4])
+        
+        with map_header_col1:
+            st.markdown("#### 🗺️ Route Map")
+        
+        with map_header_col2:
+            map_style = st.selectbox(
+                "🎨 Map Style",
+                options=["Light", "Dark", "Standard", "Terrain", "Toner", "Watercolor"],
+                index=0,  # 預設 Light
+                key="map_style_selector",
+                label_visibility="collapsed"
+            )
         
         try:
-            # Create Folium map
+            # Create Folium map with selected style
             folium_map_obj = folium_map.create_route_map_folium(
                 schedule_data=filtered_data,
                 date_str=selected_date.isoformat(),
                 show_route_lines=True,
-                selected_groups=selected_groups
+                selected_groups=selected_groups,
+                map_style=map_style  # ✅ 傳遞選擇的樣式
             )
             
             # Display map
