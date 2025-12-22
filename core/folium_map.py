@@ -24,14 +24,32 @@ GROUP_COLORS = [
     "#22C55E",  # Group 10 - 淺綠
 ]
 
-# ✅ 地圖樣式配置
+# ✅ 修正後的地圖樣式配置（包含 attribution）
 MAP_STYLES = {
-    "Light": "CartoDB positron",
-    "Dark": "CartoDB dark_matter",
-    "Standard": "OpenStreetMap",
-    "Terrain": "Stamen Terrain",
-    "Toner": "Stamen Toner",
-    "Watercolor": "Stamen Watercolor",
+    "Light": {
+        "tiles": "CartoDB positron",
+        "attr": None  # CartoDB 有內建 attribution
+    },
+    "Dark": {
+        "tiles": "CartoDB dark_matter",
+        "attr": None
+    },
+    "Standard": {
+        "tiles": "OpenStreetMap",
+        "attr": None
+    },
+    "Terrain": {
+        "tiles": "https://stamen-tiles-{s}.a.ssl.fastly.net/terrain/{z}/{x}/{y}.jpg",
+        "attr": 'Map tiles by <a href="http://stamen.com">Stamen Design</a>, under <a href="http://creativecommons.org/licenses/by/3.0">CC BY 3.0</a>. Data by <a href="http://openstreetmap.org">OpenStreetMap</a>, under <a href="http://www.openstreetmap.org/copyright">ODbL</a>.'
+    },
+    "Toner": {
+        "tiles": "https://stamen-tiles-{s}.a.ssl.fastly.net/toner/{z}/{x}/{y}.png",
+        "attr": 'Map tiles by <a href="http://stamen.com">Stamen Design</a>, under <a href="http://creativecommons.org/licenses/by/3.0">CC BY 3.0</a>. Data by <a href="http://openstreetmap.org">OpenStreetMap</a>, under <a href="http://www.openstreetmap.org/copyright">ODbL</a>.'
+    },
+    "Watercolor": {
+        "tiles": "https://stamen-tiles-{s}.a.ssl.fastly.net/watercolor/{z}/{x}/{y}.jpg",
+        "attr": 'Map tiles by <a href="http://stamen.com">Stamen Design</a>, under <a href="http://creativecommons.org/licenses/by/3.0">CC BY 3.0</a>. Data by <a href="http://openstreetmap.org">OpenStreetMap</a>, under <a href="http://creativecommons.org/licenses/by-sa/3.0">CC BY SA</a>.'
+    },
 }
 
 
@@ -40,7 +58,7 @@ def create_route_map_folium(
     date_str: str,
     show_route_lines: bool = True,
     selected_groups: Optional[List[int]] = None,
-    map_style: str = "Light",  # ✅ 新增參數
+    map_style: str = "Light",
 ) -> folium.Map:
     """
     Create an interactive map using Folium with brand logos.
@@ -60,16 +78,24 @@ def create_route_map_folium(
     if selected_groups:
         schedule_data = [s for s in schedule_data if s.get("group_number") in selected_groups]
     
-    # ✅ Get tile layer based on selected style
-    tile_layer = MAP_STYLES.get(map_style, "CartoDB positron")
+    # ✅ Get tile configuration
+    style_config = MAP_STYLES.get(map_style, MAP_STYLES["Light"])
     
     if not schedule_data:
         # Return empty map centered on Hong Kong
-        return folium.Map(
-            location=[22.3193, 114.1694],
-            zoom_start=11,
-            tiles=tile_layer
-        )
+        if style_config["attr"]:
+            return folium.Map(
+                location=[22.3193, 114.1694],
+                zoom_start=11,
+                tiles=style_config["tiles"],
+                attr=style_config["attr"]
+            )
+        else:
+            return folium.Map(
+                location=[22.3193, 114.1694],
+                zoom_start=11,
+                tiles=style_config["tiles"]
+            )
     
     # Calculate map center
     lats = [s["lat"] for s in schedule_data if s.get("lat")]
@@ -95,23 +121,41 @@ def create_route_map_folium(
         else:
             zoom = 13
     
-    # ✅ Create base map with selected style
-    m = folium.Map(
-        location=center,
-        zoom_start=zoom,
-        tiles=tile_layer,
-        control_scale=True
-    )
+    # ✅ Create base map with proper attribution
+    if style_config["attr"]:
+        m = folium.Map(
+            location=center,
+            zoom_start=zoom,
+            tiles=style_config["tiles"],
+            attr=style_config["attr"],
+            control_scale=True
+        )
+    else:
+        m = folium.Map(
+            location=center,
+            zoom_start=zoom,
+            tiles=style_config["tiles"],
+            control_scale=True
+        )
     
-    # ✅ 添加替代圖層 (讓用戶可以在地圖上切換)
-    for style_name, tile_url in MAP_STYLES.items():
-        if style_name != map_style:  # 不添加當前選中的
-            folium.TileLayer(
-                tiles=tile_url,
-                name=style_name,
-                overlay=False,
-                control=True
-            ).add_to(m)
+    # ✅ 添加替代圖層
+    for style_name, config in MAP_STYLES.items():
+        if style_name != map_style:
+            if config["attr"]:
+                folium.TileLayer(
+                    tiles=config["tiles"],
+                    attr=config["attr"],
+                    name=style_name,
+                    overlay=False,
+                    control=True
+                ).add_to(m)
+            else:
+                folium.TileLayer(
+                    tiles=config["tiles"],
+                    name=style_name,
+                    overlay=False,
+                    control=True
+                ).add_to(m)
     
     # Group shops by group_number
     groups = {}
@@ -212,7 +256,6 @@ def _add_shop_marker(feature_group, shop: Dict, color: str, group_no: int):
     status = shop.get("status", "Planned")
     logo_url = shop.get("brand_icon_url", "")
     
-    # ✅ 增強的 Popup: 顯示大 Logo + 完整資訊
     popup_html = f"""
     <div style="font-family: Arial, sans-serif; width: 300px;">
         <div style="background-color: {color}; color: white; padding: 12px; margin: -10px -10px 15px -10px; border-radius: 8px 8px 0 0;">
@@ -251,7 +294,6 @@ def _add_shop_marker(feature_group, shop: Dict, color: str, group_no: int):
     </div>
     """
     
-    # ✅ 簡單的彩色圖釘圖示 (帶 Shop ID)
     icon_html = f"""
     <div style="position: relative;">
         <div style="
@@ -282,7 +324,6 @@ def _add_shop_marker(feature_group, shop: Dict, color: str, group_no: int):
     
     icon = folium.DivIcon(html=icon_html)
     
-    # Add marker
     folium.Marker(
         location=[lat, lng],
         popup=folium.Popup(popup_html, max_width=320),
